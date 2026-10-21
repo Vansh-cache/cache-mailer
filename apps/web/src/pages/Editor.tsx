@@ -203,6 +203,10 @@ function EditPanel() {
   const sectionBlocks = blocks.filter((block) => blockSection(block) === activeSection);
   const countFor = (section: Section) => blocks.filter((block) => blockSection(block) === section).length;
   const [globalOpen, setGlobalOpen] = useState(false);
+  useEffect(() => {
+    if (!selectedId) return;
+    document.getElementById(`block-card-${selectedId}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [selectedId, activeSection]);
 
   const move = (block: Block, direction: -1 | 1) => useEditor.getState().change((draft) => {
     const index = draft.blocks.findIndex((item) => item.id === block.id);
@@ -247,6 +251,11 @@ function EditPanel() {
             </button>
           ))}
         </div>
+        <div className="mt-1.5 flex items-center gap-1.5 rounded-lg bg-tide-700 px-2 py-1 text-white shadow-sm">
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-white" />
+          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide">Editing: {meta.title}</span>
+          <span className="truncate text-[10px] text-white/70">{meta.hint}</span>
+        </div>
         <div className="mt-1.5 flex flex-nowrap gap-1 overflow-x-auto pb-0.5">
           {BLOCK_BUTTONS.map((item) => (
             <button
@@ -278,13 +287,15 @@ function EditPanel() {
           return (
             <article
               key={block.id}
-              className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition ${selected ? "border-tide-600 ring-2 ring-tide-600/25" : "border-slate-200"}`}
+              id={`block-card-${block.id}`}
+              className={`overflow-hidden rounded-2xl border bg-white transition ${selected ? "border-tide-600 shadow-[0_10px_28px_rgba(15,118,110,0.22)] ring-2 ring-tide-600" : "border-slate-200 shadow-sm"}`}
               onClick={() => useEditor.getState().select(block.id)}
             >
-              <header className="flex items-center gap-1.5 border-b border-slate-100 px-2.5 py-2">
-                <span className="rounded-md bg-tide-700 px-1.5 py-0.5 text-[10px] font-bold text-white">#{index + 1}</span>
-                <card.icon size={13} className="shrink-0 text-tide-700" />
-                <span className="min-w-0 flex-1 truncate text-[11px] font-bold uppercase tracking-wide text-ink-900">{card.label}</span>
+              <header className={`flex items-center gap-1.5 border-b px-2.5 py-2 ${selected ? "border-tide-700 bg-tide-700 text-white" : "border-slate-100"}`}>
+                <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${selected ? "bg-white text-tide-700" : "bg-tide-700 text-white"}`}>#{index + 1}</span>
+                <card.icon size={13} className={`shrink-0 ${selected ? "text-white" : "text-tide-700"}`} />
+                <span className={`min-w-0 flex-1 truncate text-[11px] font-bold uppercase tracking-wide ${selected ? "text-white" : "text-ink-900"}`}>{card.label}</span>
+                {selected && <span className="mr-0.5 hidden shrink-0 items-center gap-1 text-[9px] font-bold uppercase tracking-wide text-white/85 sm:inline-flex"><span className="h-1 w-1 animate-pulse rounded-full bg-white" /> Editing</span>}
                 <button type="button" className={cardAction} disabled={index === 0} onClick={(event) => { event.stopPropagation(); move(block, -1); }} title="Move up" aria-label="Move block up"><ArrowUp size={13} /></button>
                 <button type="button" className={cardAction} disabled={index === sectionBlocks.length - 1} onClick={(event) => { event.stopPropagation(); move(block, 1); }} title="Move down" aria-label="Move block down"><ArrowDown size={13} /></button>
                 <button type="button" className={cardAction} onClick={(event) => { event.stopPropagation(); duplicate(block); }} title="Duplicate block" aria-label="Duplicate block"><Copy size={13} /></button>
@@ -421,15 +432,29 @@ function SectionBand({ section, blocks, editable }: { section: Section; blocks: 
   const activeSection = useEditor((state) => state.activeSection);
   const hasSelected = blocks.some((block) => block.id === selectedId);
   const isActive = activeSection === section;
+  const showActive = editable && isActive;
   return (
-    <section className={`border-b ${hasSelected || isActive ? "border-tide-600" : "border-slate-200"}`}>
+    <section
+      className={`border-b transition-colors ${showActive ? "border-tide-600 bg-tide-50/70" : hasSelected ? "border-tide-600" : "border-slate-200"}`}
+      style={showActive ? { boxShadow: "inset 5px 0 0 #0f766e" } : undefined}
+    >
       <header
-        className={`flex items-center justify-between gap-2 px-3 py-1 ${editable ? "cursor-pointer" : ""} ${editable && isActive ? "bg-tide-700 text-white" : "bg-slate-50 text-slate-600"}`}
+        className={`flex items-center justify-between gap-2 px-3 ${showActive ? "py-1.5" : "py-1"} ${editable ? "cursor-pointer" : ""} ${showActive ? "bg-tide-700 text-white shadow-sm" : "bg-slate-50 text-slate-600"}`}
         onClick={() => { if (editable) useEditor.getState().setActiveSection(section); }}
         title={editable ? `Add content to the ${meta.title.toLowerCase()}` : meta.title}
       >
-        <span className="text-[10px] font-bold uppercase tracking-[0.12em]">{meta.title}</span>
-        <span className={`truncate text-[10px] ${editable && isActive ? "text-white/75" : "text-slate-400"}`}>{editable && isActive ? "Adding content here" : meta.hint}</span>
+        <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em]">
+          {showActive && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />}
+          {meta.title}
+        </span>
+        {showActive ? (
+          <span className="flex shrink-0 items-center gap-1.5">
+            <span className="hidden truncate text-[10px] text-white/75 sm:inline">{meta.hint}</span>
+            <span className="rounded-full bg-white px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-tide-700">Active</span>
+          </span>
+        ) : (
+          <span className="truncate text-[10px] text-slate-400">{meta.hint}</span>
+        )}
       </header>
       {blocks.map((block) => <SortableBlock key={block.id} block={block} editable={editable} />)}
       {blocks.length === 0 && (editable ? (
@@ -451,10 +476,17 @@ function SortableBlock({ block, editable }: { block: Block; editable: boolean })
   const selected = useEditor((state) => state.selectedId === block.id);
   const sortable = useSortable({ id: block.id, disabled: !editable });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
+  const isSelected = editable && selected;
   return (
-    <div ref={sortable.setNodeRef} style={style} className={`group relative transition-shadow ${editable && selected ? "z-10 ring-2 ring-inset ring-tide-600" : editable ? "hover:ring-1 hover:ring-inset hover:ring-tide-300" : ""}`} onClick={() => { if (editable) useEditor.getState().select(block.id); }}>
+    <div ref={sortable.setNodeRef} style={style} className={`group relative transition-shadow ${isSelected ? "z-10 shadow-[0_10px_30px_rgba(15,118,110,0.25)] ring-[3px] ring-inset ring-tide-600" : editable ? "hover:ring-1 hover:ring-inset hover:ring-tide-300" : ""}`} onClick={() => { if (editable) useEditor.getState().select(block.id); }}>
       {editable && (
         <button className="absolute left-1 top-1 z-20 hidden h-6 w-6 cursor-grab place-items-center rounded-md bg-white/90 text-slate-400 shadow-sm ring-1 ring-slate-200 group-hover:grid" {...sortable.attributes} {...sortable.listeners}><GripVertical size={13} /></button>
+      )}
+      {isSelected && (
+        <span className="pointer-events-none absolute -top-2 left-2 z-30 inline-flex items-center gap-1 rounded-full bg-tide-700 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow-md">
+          <span className="h-1 w-1 animate-pulse rounded-full bg-white" />
+          Editing - {sectionMeta(blockSection(block)).title} · {BLOCK_CARD_META[block.type].label}
+        </span>
       )}
       <BlockView block={block} />
     </div>
