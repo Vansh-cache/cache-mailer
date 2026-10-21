@@ -1,0 +1,18 @@
+{
+  "name": "bulk-mailer",
+  "private": true,
+  "workspaces": [
+    "apps/server",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,worker,track,web -c blue,green,yellow,magenta \"npm run dev -w @cdt/server\" \"npm run dev:worker -w @cdt/server\" \"npm run dev:tracking -w @cdt/server\" \"npm run dev -w @cdt/web\"",
+    "db:up": "docker compose up -d",
+    "db:setup": "npm exec -w @cdt/server -- prisma migrate dev --name init && npm exec -w @cdt/server -- prisma db seed",
+    "test": "npm test -w @cdt/server",
+    "build": "npm run build -w @cdt/server && npm run build -w @cdt/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

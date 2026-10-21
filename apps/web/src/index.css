@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-100 text-ink-950 antialiased;
+}
+
+button, input, select, textarea {
+  @apply outline-none;
+}
+
+.panel {
+  @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+}

@@ -1,0 +1,23 @@
+# Local development only. On a production VM, change these passwords and
+# do not publish port 3306 publicly (keep MySQL on localhost).
+services:
+  mysql:
+    image: mysql:8.0
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: bulk_mailer
+      MYSQL_USER: mailer
+      MYSQL_PASSWORD: mailer
+    ports:
+      - "3306:3306"
+    volumes:
+      - mailer_mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  mailer_mysql:

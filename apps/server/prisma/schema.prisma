@@ -1,0 +1,494 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  admin
+  marketing
+  sales
+}
+
+enum SenderProvider {
+  graph
+  ses
+  smtp
+}
+
+enum SenderStatus {
+  active
+  paused
+  error
+}
+
+enum ContactStatus {
+  active
+  unsubscribed
+  bounced
+}
+
+enum ZohoModule {
+  contacts
+  leads
+}
+
+enum TemplateKind {
+  draft
+  template
+}
+
+enum TemplateVisibility {
+  team
+  shared
+}
+
+enum CampaignStatus {
+  draft
+  scheduled
+  sending
+  paused
+  sent
+  cancelled
+  failed
+}
+
+enum RecipientStatus {
+  queued
+  processing
+  sent
+  failed
+  skipped
+}
+
+enum EventType {
+  delivered
+  bounce_hard
+  bounce_soft
+  open
+  click
+  unsubscribe
+  reply
+}
+
+enum SuppressionReason {
+  unsubscribed
+  hard_bounce
+  manual
+  zoho_optout
+}
+
+enum SequenceStatus {
+  active
+  paused
+}
+
+enum EnrollmentStatus {
+  active
+  done
+  stopped
+}
+
+enum SendFormat {
+  html
+  plain
+}
+
+model Team {
+  id        Int             @id @default(autoincrement()) @db.UnsignedTinyInt
+  name      String          @unique @db.VarChar(50)
+  users     User[]
+  senders   SenderAccount[]
+  segments  Segment[]
+  templates Template[]
+  campaigns Campaign[]
+  sequences Sequence[]
+  gates     Gate[]
+
+  @@map("teams")
+}
+
+model User {
+  id           BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  name         String    @db.VarChar(100)
+  email        String    @unique @db.VarChar(190)
+  passwordHash String    @map("password_hash") @db.VarChar(255)
+  role         UserRole
+  teamId       Int?      @map("team_id") @db.UnsignedTinyInt
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at") @db.DateTime(0)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  team         Team?     @relation(fields: [teamId], references: [id])
+  templates    Template[]
+  campaigns    Campaign[]
+  segments     Segment[]
+  assets       Asset[]
+  sequences    Sequence[]
+
+  @@map("users")
+}
+
+model SenderAccount {
+  id              BigInt         @id @default(autoincrement()) @db.UnsignedBigInt
+  teamId          Int            @map("team_id") @db.UnsignedTinyInt
+  fromName        String         @map("from_name") @db.VarChar(100)
+  fromEmail       String         @unique @map("from_email") @db.VarChar(190)
+  replyTo         String?        @map("reply_to") @db.VarChar(190)
+  provider        SenderProvider @default(graph)
+  dailyLimit      Int            @default(500) @map("daily_limit") @db.UnsignedInt
+  perMinuteLimit  Int            @default(20) @map("per_minute_limit") @db.UnsignedInt
+  status          SenderStatus   @default(active)
+  lastError       String?        @map("last_error") @db.Text
+  inboxDeltaLink  String?        @map("inbox_delta_link") @db.Text
+  createdAt       DateTime       @default(now()) @map("created_at") @db.DateTime(0)
+  team            Team           @relation(fields: [teamId], references: [id])
+  campaignSenders CampaignSender[]
+  recipients      CampaignRecipient[]
+  sequences       Sequence[]
+
+  @@map("sender_accounts")
+}
+
+model Contact {
+  id           BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
+  email        String           @unique @db.VarChar(190)
+  firstName    String?          @map("first_name") @db.VarChar(100)
+  lastName     String?          @map("last_name") @db.VarChar(100)
+  company      String?          @db.VarChar(190)
+  jobTitle     String?          @map("job_title") @db.VarChar(150)
+  status       ContactStatus    @default(active)
+  source       String?          @db.VarChar(50)
+  consentNote  String?          @map("consent_note") @db.VarChar(255)
+  zohoId       String?          @map("zoho_id") @db.VarChar(40)
+  zohoModule   ZohoModule?      @map("zoho_module")
+  customFields Json?            @map("custom_fields")
+  score        Int              @default(0) @db.UnsignedInt
+  bonusScore   Int              @default(0) @map("bonus_score") @db.UnsignedInt
+  referralCode String?          @unique @map("referral_code") @db.VarChar(16)
+  referredById BigInt?          @map("referred_by_id") @db.UnsignedBigInt
+  referredBy   Contact?         @relation("Referrals", fields: [referredById], references: [id])
+  referrals    Contact[]        @relation("Referrals")
+  enrollments  SequenceEnrollment[]
+  createdAt    DateTime         @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.DateTime(0)
+  tags         ContactTag[]
+  recipients   CampaignRecipient[]
+
+  @@index([status], map: "idx_status")
+  @@index([zohoId], map: "idx_zoho")
+  @@map("contacts")
+}
+
+model Tag {
+  id         Int          @id @default(autoincrement()) @db.UnsignedInt
+  name       String       @unique @db.VarChar(80)
+  points     Int          @default(0) @db.UnsignedSmallInt
+  contacts   ContactTag[]
+  sequences  Sequence[]
+
+  @@map("tags")
+}
+
+model ContactTag {
+  contactId BigInt  @map("contact_id") @db.UnsignedBigInt
+  tagId     Int     @map("tag_id") @db.UnsignedInt
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@index([tagId], map: "idx_tag")
+  @@map("contact_tags")
+}
+
+model Segment {
+  id        Int      @id @default(autoincrement()) @db.UnsignedInt
+  teamId    Int?     @map("team_id") @db.UnsignedTinyInt
+  name      String   @db.VarChar(120)
+  rules     Json
+  createdBy BigInt   @map("created_by") @db.UnsignedBigInt
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  team      Team?    @relation(fields: [teamId], references: [id])
+  author    User     @relation(fields: [createdBy], references: [id])
+
+  @@map("segments")
+}
+
+model Asset {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  fileName   String   @map("file_name") @db.VarChar(190)
+  url        String   @db.VarChar(500)
+  sizeBytes  Int      @map("size_bytes") @db.UnsignedInt
+  uploadedBy BigInt   @map("uploaded_by") @db.UnsignedBigInt
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  uploader   User     @relation(fields: [uploadedBy], references: [id])
+
+  @@map("assets")
+}
+
+model Template {
+  id          BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  teamId      Int?               @map("team_id") @db.UnsignedTinyInt
+  name        String             @db.VarChar(150)
+  category    String             @default("general") @db.VarChar(40)
+  kind        TemplateKind       @default(template)
+  visibility  TemplateVisibility @default(team)
+  designJson  Json               @map("design_json")
+  html        String?            @db.MediumText
+  textVersion String?            @map("text_version") @db.MediumText
+  createdBy   BigInt             @map("created_by") @db.UnsignedBigInt
+  createdAt   DateTime           @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt   DateTime           @updatedAt @map("updated_at") @db.DateTime(0)
+  team        Team?              @relation(fields: [teamId], references: [id])
+  author      User               @relation(fields: [createdBy], references: [id])
+  campaigns     Campaign[]
+  sequenceSteps SequenceStep[]
+
+  @@map("templates")
+}
+
+model Campaign {
+  id            BigInt         @id @default(autoincrement()) @db.UnsignedBigInt
+  teamId        Int            @map("team_id") @db.UnsignedTinyInt
+  name          String         @db.VarChar(150)
+  subject       String         @db.VarChar(255)
+  preheader     String?        @db.VarChar(255)
+  templateId    BigInt         @map("template_id") @db.UnsignedBigInt
+  htmlSnapshot  String?        @map("html_snapshot") @db.MediumText
+  textSnapshot  String?        @map("text_snapshot") @db.MediumText
+  audience      Json
+  useUtm        Boolean        @default(true) @map("use_utm")
+  sendFormat    SendFormat     @default(html) @map("send_format")
+  hidden        Boolean        @default(false)
+  status        CampaignStatus @default(draft)
+  scheduledAt   DateTime?      @map("scheduled_at") @db.DateTime(0)
+  startedAt     DateTime?      @map("started_at") @db.DateTime(0)
+  finishedAt    DateTime?      @map("finished_at") @db.DateTime(0)
+  createdBy     BigInt         @map("created_by") @db.UnsignedBigInt
+  createdAt     DateTime       @default(now()) @map("created_at") @db.DateTime(0)
+  team          Team           @relation(fields: [teamId], references: [id])
+  template      Template       @relation(fields: [templateId], references: [id])
+  author        User           @relation(fields: [createdBy], references: [id])
+  senders       CampaignSender[]
+  recipients    CampaignRecipient[]
+  links         Link[]
+  events        Event[]
+  stats         CampaignStats?
+  hourly        CampaignStatsHourly[]
+  sequenceStep  SequenceStep?
+
+  @@index([status, scheduledAt], map: "idx_status_sched")
+  @@map("campaigns")
+}
+
+model CampaignSender {
+  campaignId BigInt        @map("campaign_id") @db.UnsignedBigInt
+  senderId   BigInt        @map("sender_id") @db.UnsignedBigInt
+  campaign   Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  sender     SenderAccount @relation(fields: [senderId], references: [id])
+
+  @@id([campaignId, senderId])
+  @@map("campaign_senders")
+}
+
+model CampaignRecipient {
+  id                BigInt          @id @default(autoincrement()) @db.UnsignedBigInt
+  campaignId        BigInt          @map("campaign_id") @db.UnsignedBigInt
+  contactId         BigInt          @map("contact_id") @db.UnsignedBigInt
+  senderId          BigInt          @map("sender_id") @db.UnsignedBigInt
+  token             String          @unique @db.Char(32)
+  status            RecipientStatus @default(queued)
+  skipReason        String?         @map("skip_reason") @db.VarChar(50)
+  attempts          Int             @default(0) @db.UnsignedTinyInt
+  nextAttemptAt     DateTime        @default(now()) @map("next_attempt_at") @db.DateTime(0)
+  lockedBy          String?         @map("locked_by") @db.VarChar(40)
+  lockedUntil       DateTime?       @map("locked_until") @db.DateTime(0)
+  internetMessageId String?         @map("internet_message_id") @db.VarChar(255)
+  lastError         String?         @map("last_error") @db.VarChar(500)
+  sentAt            DateTime?       @map("sent_at") @db.DateTime(0)
+  campaign          Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact           Contact         @relation(fields: [contactId], references: [id])
+  sender            SenderAccount   @relation(fields: [senderId], references: [id])
+  events            Event[]
+
+  @@unique([campaignId, contactId], map: "uq_campaign_contact")
+  @@index([status, senderId, nextAttemptAt], map: "idx_queue")
+  @@index([campaignId, status], map: "idx_campaign_status")
+  @@index([internetMessageId], map: "idx_msgid")
+  @@map("campaign_recipients")
+}
+
+model Link {
+  id          BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  campaignId  BigInt   @map("campaign_id") @db.UnsignedBigInt
+  originalUrl String   @map("original_url") @db.VarChar(2000)
+  urlHash     String   @map("url_hash") @db.Char(40)
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  events      Event[]
+
+  @@unique([campaignId, urlHash], map: "uq_campaign_link")
+  @@map("links")
+}
+
+model Event {
+  id          BigInt    @id @default(autoincrement()) @db.UnsignedBigInt
+  campaignId  BigInt    @map("campaign_id") @db.UnsignedBigInt
+  recipientId BigInt    @map("recipient_id") @db.UnsignedBigInt
+  type        EventType
+  linkId      BigInt?   @map("link_id") @db.UnsignedBigInt
+  isBot       Boolean   @default(false) @map("is_bot")
+  userAgent   String?   @map("user_agent") @db.VarChar(300)
+  ipHash      String?   @map("ip_hash") @db.Char(64)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  campaign    Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipient   CampaignRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  link        Link?     @relation(fields: [linkId], references: [id])
+
+  @@index([campaignId, type, createdAt], map: "idx_campaign_type_time")
+  @@index([recipientId, type], map: "idx_recipient")
+  @@map("events")
+}
+
+model CampaignStats {
+  campaignId     BigInt   @id @map("campaign_id") @db.UnsignedBigInt
+  totalRecipients Int     @default(0) @map("total_recipients") @db.UnsignedInt
+  sent           Int      @default(0) @db.UnsignedInt
+  failed         Int      @default(0) @db.UnsignedInt
+  bouncedHard    Int      @default(0) @map("bounced_hard") @db.UnsignedInt
+  bouncedSoft    Int      @default(0) @map("bounced_soft") @db.UnsignedInt
+  uniqueOpens    Int      @default(0) @map("unique_opens") @db.UnsignedInt
+  totalOpens     Int      @default(0) @map("total_opens") @db.UnsignedInt
+  uniqueClicks   Int      @default(0) @map("unique_clicks") @db.UnsignedInt
+  totalClicks    Int      @default(0) @map("total_clicks") @db.UnsignedInt
+  unsubscribes   Int      @default(0) @db.UnsignedInt
+  replies        Int      @default(0) @db.UnsignedInt
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  campaign       Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("campaign_stats")
+}
+
+model CampaignStatsHourly {
+  campaignId BigInt   @map("campaign_id") @db.UnsignedBigInt
+  hourStart  DateTime @map("hour_start") @db.DateTime(0)
+  opens      Int      @default(0) @db.UnsignedInt
+  clicks     Int      @default(0) @db.UnsignedInt
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, hourStart])
+  @@map("campaign_stats_hourly")
+}
+
+model Suppression {
+  email      String            @id @db.VarChar(190)
+  reason     SuppressionReason
+  campaignId BigInt?           @map("campaign_id") @db.UnsignedBigInt
+  createdAt  DateTime          @default(now()) @map("created_at") @db.DateTime(0)
+
+  @@map("suppression_list")
+}
+
+model ZohoSyncState {
+  module             ZohoModule @id
+  lastModifiedTime   DateTime?  @map("last_modified_time") @db.DateTime(0)
+  lastRunAt          DateTime?  @map("last_run_at") @db.DateTime(0)
+  lastStatus         String?    @map("last_status") @db.VarChar(50)
+  lastError          String?    @map("last_error") @db.Text
+
+  @@map("zoho_sync_state")
+}
+
+model IntegrationSecret {
+  name           String   @id @db.VarChar(60)
+  valueEncrypted Bytes    @map("value_encrypted")
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  @@map("integration_secrets")
+}
+
+model Setting {
+  key   String @id @map("k") @db.VarChar(60)
+  value String @map("v") @db.Text
+
+  @@map("settings")
+}
+
+model AuditLog {
+  id        BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  userId    BigInt?  @map("user_id") @db.UnsignedBigInt
+  action    String   @db.VarChar(80)
+  entity    String?  @db.VarChar(50)
+  entityId  BigInt?  @map("entity_id") @db.UnsignedBigInt
+  meta      Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  @@index([action, createdAt], map: "idx_audit_action")
+  @@map("audit_log")
+}
+
+model Sequence {
+  id           Int                  @id @default(autoincrement()) @db.UnsignedInt
+  teamId       Int                  @map("team_id") @db.UnsignedTinyInt
+  name         String               @db.VarChar(120)
+  triggerTagId Int                  @map("trigger_tag_id") @db.UnsignedInt
+  senderId     BigInt               @map("sender_id") @db.UnsignedBigInt
+  status       SequenceStatus       @default(active)
+  createdBy    BigInt               @map("created_by") @db.UnsignedBigInt
+  createdAt    DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  team         Team                 @relation(fields: [teamId], references: [id])
+  triggerTag   Tag                  @relation(fields: [triggerTagId], references: [id])
+  sender       SenderAccount        @relation(fields: [senderId], references: [id])
+  author       User                 @relation(fields: [createdBy], references: [id])
+  steps        SequenceStep[]
+  enrollments  SequenceEnrollment[]
+
+  @@index([status, triggerTagId], map: "idx_sequence_trigger")
+  @@map("sequences")
+}
+
+model SequenceStep {
+  id         Int       @id @default(autoincrement()) @db.UnsignedInt
+  sequenceId Int       @map("sequence_id") @db.UnsignedInt
+  position   Int       @db.UnsignedTinyInt
+  waitDays   Int       @default(0) @map("wait_days") @db.UnsignedSmallInt
+  subject    String    @db.VarChar(255)
+  templateId BigInt    @map("template_id") @db.UnsignedBigInt
+  campaignId BigInt?   @unique @map("campaign_id") @db.UnsignedBigInt
+  sequence   Sequence  @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  template   Template  @relation(fields: [templateId], references: [id])
+  campaign   Campaign? @relation(fields: [campaignId], references: [id])
+
+  @@unique([sequenceId, position], map: "uq_sequence_step")
+  @@map("sequence_steps")
+}
+
+model SequenceEnrollment {
+  id         BigInt           @id @default(autoincrement()) @db.UnsignedBigInt
+  sequenceId Int              @map("sequence_id") @db.UnsignedInt
+  contactId  BigInt           @map("contact_id") @db.UnsignedBigInt
+  nextStep   Int              @default(0) @map("next_step") @db.UnsignedTinyInt
+  nextRunAt  DateTime         @map("next_run_at") @db.DateTime(0)
+  status     EnrollmentStatus @default(active)
+  sequence   Sequence         @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  contact    Contact          @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([sequenceId, contactId], map: "uq_sequence_contact")
+  @@index([status, nextRunAt], map: "idx_enrollment_due")
+  @@map("sequence_enrollments")
+}
+
+model Gate {
+  id       Int     @id @default(autoincrement()) @db.UnsignedInt
+  teamId   Int     @map("team_id") @db.UnsignedTinyInt
+  slug     String  @unique @db.VarChar(60)
+  title    String  @db.VarChar(120)
+  detail   String  @db.VarChar(500)
+  tagName  String  @map("tag_name") @db.VarChar(80)
+  assetUrl String  @map("asset_url") @db.VarChar(2000)
+  active   Boolean @default(true)
+  team     Team    @relation(fields: [teamId], references: [id])
+
+  @@map("gates")
+}
