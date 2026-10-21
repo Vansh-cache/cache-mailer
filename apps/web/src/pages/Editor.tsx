@@ -302,7 +302,7 @@ function EditPanel() {
                 <button type="button" className={`${cardAction} hover:border-rose-300 hover:text-rose-600`} onClick={(event) => { event.stopPropagation(); remove(block); }} title="Delete block" aria-label="Delete block"><Trash2 size={13} /></button>
               </header>
               {block.type !== "image" && (
-                <div className="pointer-events-none max-h-24 overflow-hidden border-b border-slate-100 bg-white px-1 py-1">
+                <div className="pointer-events-none max-h-24 overflow-hidden border-b border-slate-100 px-1 py-1" style={{ background: settings.contentBg }}>
                   <BlockView block={block} />
                 </div>
               )}
@@ -621,7 +621,7 @@ function BlockView({ block, editing = false }: { block: Block; editing?: boolean
       const baked = bakedBanner(block.src);
       return (
         <span className="relative block">
-          <img src={mediaPath(block.src)} alt={block.alt} className="mx-auto max-w-full" style={{ width: block.width === "100%" ? "100%" : block.width }} />
+          <img src={mediaPath(block.src)} alt={block.alt} className={`block max-w-full ${block.align === "left" ? "mr-auto" : block.align === "right" ? "ml-auto" : "mx-auto"}`} style={{ width: block.width === "100%" ? "100%" : block.width }} />
           {editing && (
             <button
               type="button"
@@ -722,7 +722,7 @@ function BlockSettings({ block }: { block: Block }) {
       const hasBg = block.style.bg !== "transparent";
       return (
         <div className="space-y-2.5">
-          <TextTools blockId={block.id} html={block.html} />
+          <TextTools blockId={block.id} html={block.html} bg={block.style.bg} />
           <div className="grid grid-cols-2 gap-2">
             <label className="block">
               <span className="mb-1 block font-medium">Text size (px)</span>
@@ -749,9 +749,12 @@ function BlockSettings({ block }: { block: Block }) {
               Background colour behind this text
             </label>
             {hasBg && (
-              <span className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 shadow-sm">
-                <input type="color" value={block.style.bg} onChange={(event) => patch((current) => { if (current.type === "text") current.style.bg = event.target.value; })} className="h-6 w-10 shrink-0 cursor-pointer rounded border border-slate-200 bg-transparent p-0" />
-                <span className="text-[11px] text-slate-500">{block.style.bg} - pick green, blue, any colour. Make the text colour light from the toolbar above.</span>
+              <span className="mt-2 block rounded-lg border border-slate-200 bg-white px-2 py-2 shadow-sm">
+                <span className="flex items-center gap-2">
+                  <input type="color" value={block.style.bg} onChange={(event) => patch((current) => { if (current.type === "text") current.style.bg = event.target.value; })} className="h-7 w-12 shrink-0 cursor-pointer rounded border border-slate-200 bg-transparent p-0" aria-label="Background colour value" />
+                  <span className="text-[12px] font-semibold text-ink-900">{block.style.bg}</span>
+                </span>
+                <span className="mt-1.5 block text-[11px] leading-snug text-slate-500">Pick green, blue, any colour. Then make the words light with the text colour picker (A) in the toolbar above.</span>
               </span>
             )}
           </div>
@@ -900,6 +903,12 @@ function BlockSettings({ block }: { block: Block }) {
               </label>
             </div>
             <p className="mt-1.5 text-[11px] leading-snug text-slate-400">Fallback colour shows behind the text in mail apps that cannot display background images (like old Outlook).</p>
+            {(() => {
+              const textLum = hexLuminance(block.overlayColor ?? "#ffffff");
+              const bgLum = hexLuminance(block.overlayBg ?? "#0f766e");
+              if (textLum === null || bgLum === null || Math.abs(textLum - bgLum) > 0.18) return null;
+              return <p className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800">Banner text colour is very close to the fallback colour - the words may be hard to read in Outlook. Pick a lighter text colour or a darker fallback colour.</p>;
+            })()}
           </div>
           {alignSelect(block.align, (next) => patch((current) => { if (current.type === "image") current.align = next; }))}
         </div>
@@ -924,6 +933,19 @@ function BlockSettings({ block }: { block: Block }) {
             <span className="mb-1 block font-medium">Text colour</span>
             <input type="color" className="h-9 w-full rounded border border-slate-200" value={block.style.color} onChange={(event) => patch((current) => { if (current.type === "button") current.style.color = event.target.value; })} />
           </label>
+          {(() => {
+            const labelLum = hexLuminance(block.style.color);
+            const bgLum = hexLuminance(block.style.bg);
+            if (labelLum === null || bgLum === null || Math.abs(labelLum - bgLum) > 0.18) return null;
+            return (
+              <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5">
+                <p className="min-w-0 flex-1 text-[11px] leading-snug text-amber-800">Button text is hard to see on the button colour.</p>
+                <button type="button" className="shrink-0 rounded-md bg-amber-600 px-2 py-1 text-[10px] font-bold text-white transition hover:bg-amber-700" onClick={() => patch((current) => { if (current.type === "button") current.style.color = bgLum > 0.6 ? "#1f2937" : "#ffffff"; })}>
+                  Fix contrast
+                </button>
+              </div>
+            );
+          })()}
           {alignSelect(block.style.align, (next) => patch((current) => { if (current.type === "button") current.style.align = next; }))}
         </div>
       );
@@ -1015,9 +1037,45 @@ function InlineEdit({ value, onSave, className, style, placeholder }: { value: s
   );
 }
 
-function TextTools({ blockId, html }: { blockId: string; html: string }) {
+function hexLuminance(color: string): number | null {
+  const match = /^#([0-9a-f]{6})$/i.exec(color.trim());
+  if (!match) return null;
+  const value = match[1];
+  const channel = (index: number) => {
+    const srgb = parseInt(value.slice(index, index + 2), 16) / 255;
+    return srgb <= 0.03928 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4);
+}
+
+function htmlHasLightText(html: string): boolean {
+  return /color:\s*(#fff(?:fff)?\b|#f[0-9a-f]{5}\b|white\b|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))/i.test(html);
+}
+
+function withTextColor(html: string, color: string): string {
+  if (/color:\s*[^;"]+/i.test(html)) return html.replace(/color:\s*[^;"]+/gi, `color:${color}`);
+  if (/<p[\s>]/i.test(html)) return html.replace(/<p>/gi, `<p><span style="color:${color}">`).replace(/<\/p>/gi, "</span></p>");
+  return `<p><span style="color:${color}">${html}</span></p>`;
+}
+
+function TextTools({ blockId, html, bg }: { blockId: string; html: string; bg: string }) {
   const editor = useRichText(blockId, html);
+  const contentBg = useEditor((state) => state.settings.contentBg);
   if (!editor) return null;
+  // The writing box must show the same background the text will sit on in
+  // the email. White banner text on the panel's old plain-white box was
+  // invisible (white on white) even though it showed fine in the preview.
+  const effectiveBg = bg !== "transparent" ? bg : contentBg;
+  const bgLuminance = hexLuminance(effectiveBg);
+  const lightText = htmlHasLightText(html);
+  const invisibleRisk = bgLuminance !== null && ((bgLuminance > 0.6 && lightText) || (bgLuminance <= 0.6 && !lightText));
+  const fixColor = bgLuminance !== null && bgLuminance > 0.6 ? "#1f2937" : "#ffffff";
+  const setAllTextColor = () => {
+    useEditor.getState().change((draft) => {
+      const block = draft.blocks.find((item) => item.id === blockId);
+      if (block && block.type === "text") block.html = withTextColor(block.html, fixColor);
+    });
+  };
   const formatButton = "grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white text-[12px] font-bold text-slate-600 shadow-sm transition hover:border-tide-600 hover:text-tide-700";
   return (
     <div className="space-y-1.5">
@@ -1025,6 +1083,20 @@ function TextTools({ blockId, html }: { blockId: string; html: string }) {
         <button className={formatButton} type="button" onClick={() => editor.chain().focus().toggleBold().run()} title="Bold">B</button>
         <button className={`${formatButton} italic`} type="button" onClick={() => editor.chain().focus().toggleItalic().run()} title="Italic">I</button>
         <button className={`${formatButton} underline`} type="button" onClick={() => editor.chain().focus().toggleUnderline().run()} title="Underline">U</button>
+        <label className={`${formatButton} relative cursor-pointer overflow-hidden`} title="Text colour - select words first, or leave unselected to colour all">
+          <span className="leading-none">A</span>
+          <span className="absolute inset-x-1 bottom-0.5 h-1 rounded-full bg-current opacity-70" />
+          <input
+            type="color"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            aria-label="Text colour"
+            onChange={(event) => {
+              const { from, to } = editor.state.selection;
+              if (from === to) editor.chain().focus().selectAll().setColor(event.target.value).run();
+              else editor.chain().focus().setColor(event.target.value).run();
+            }}
+          />
+        </label>
         <select className="h-7 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-1.5 text-[11px] text-slate-600 shadow-sm focus:border-tide-600" onChange={(event) => editor.chain().focus().insertContent(event.target.value).run()} defaultValue="" aria-label="Insert merge tag">
           <option value="" disabled>Merge tag</option>
           <option value="{{first_name | there}}">First name</option>
@@ -1033,7 +1105,17 @@ function TextTools({ blockId, html }: { blockId: string; html: string }) {
           <option value="{{job_title}}">Job title</option>
         </select>
       </div>
-      <EditorContent editor={editor} className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-[13px] leading-relaxed shadow-sm focus-within:border-tide-600 focus-within:ring-2 focus-within:ring-tide-600/20 [&_.ProseMirror]:min-h-16 [&_.ProseMirror]:outline-none" />
+      <div className="rounded-xl border border-slate-200 px-2.5 py-2 shadow-sm transition focus-within:border-tide-600 focus-within:ring-2 focus-within:ring-tide-600/20" style={{ background: effectiveBg }}>
+        <EditorContent editor={editor} className="text-[13px] leading-relaxed [&_.ProseMirror]:min-h-16 [&_.ProseMirror]:outline-none" />
+      </div>
+      {invisibleRisk && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1.5">
+          <p className="min-w-0 flex-1 text-[11px] leading-snug text-amber-800">This text is hard to see on its background colour - it would look the same in the email.</p>
+          <button type="button" className="shrink-0 rounded-md bg-amber-600 px-2 py-1 text-[10px] font-bold text-white transition hover:bg-amber-700" onClick={setAllTextColor}>
+            Make text {fixColor === "#ffffff" ? "white" : "dark"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
