@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Block, Design, Section } from "../lib/api";
+import { uid } from "../lib/uid";
 
 export const SECTION_ORDER: Record<Section, number> = { header: 0, body: 1, footer: 2 };
 
@@ -15,6 +16,12 @@ export function sortBySection(blocks: Block[]): Block[] {
 }
 
 type Snap = { settings: Design["settings"]; blocks: Block[] };
+
+// Editor state is plain JSON data. JSON cloning keeps change/undo working on
+// plain HTTP, where structuredClone may be unavailable (insecure context).
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
 
 type EditorState = {
   name: string;
@@ -36,7 +43,7 @@ type EditorState = {
 };
 
 export function blank(type: Block["type"], section: Section = "body"): Block {
-  const id = crypto.randomUUID();
+  const id = uid();
   switch (type) {
     case "text":
       return { id, section, type, html: "<p>New text</p>", style: { fontSize: 16, align: "left", padding: "12px 28px", bg: "transparent" } };
@@ -96,8 +103,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   setName: (name) => set({ name, dirty: true }),
   change: (recipe) => {
     const current = get();
-    const past = [...current.past, { settings: structuredClone(current.settings), blocks: structuredClone(current.blocks) }].slice(-50);
-    const draft = { settings: structuredClone(current.settings), blocks: structuredClone(current.blocks) };
+    const past = [...current.past, { settings: clone(current.settings), blocks: clone(current.blocks) }].slice(-50);
+    const draft = { settings: clone(current.settings), blocks: clone(current.blocks) };
     recipe(draft);
     set({ ...draft, past, future: [], dirty: true });
   },

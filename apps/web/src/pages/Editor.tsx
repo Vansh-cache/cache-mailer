@@ -16,6 +16,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { HexColorPicker } from "react-colorful";
 import { Button, inputClass } from "../components/ui";
 import { api, type Block, type Section } from "../lib/api";
+import { uid } from "../lib/uid";
 import { addBlock, blockSection, designFromStore, useEditor } from "../store/editor";
 
 export function EditorPage() {
@@ -333,9 +334,10 @@ function Inspector() {
         <Button variant="ghost" onClick={() => move(1)}><ArrowDown size={14} /></Button>
         <Button variant="ghost" onClick={() => useEditor.getState().change((draft) => {
           const index = draft.blocks.findIndex((item) => item.id === block.id);
-          const copy = structuredClone(draft.blocks[index]);
-          if (!copy) return;
-          copy.id = crypto.randomUUID();
+          const original = draft.blocks[index];
+          if (!original) return;
+          const copy = JSON.parse(JSON.stringify(original)) as Block;
+          copy.id = uid();
           draft.blocks.splice(index + 1, 0, copy);
         })}><Copy size={14} /></Button>
         <Button variant="ghost" onClick={() => useEditor.getState().change((draft) => { draft.blocks = draft.blocks.filter((item) => item.id !== block.id); })}><Trash2 size={14} /></Button>

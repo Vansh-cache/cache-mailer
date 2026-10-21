@@ -1,4 +1,5 @@
 import type { Block, Design, Section } from "./api";
+import { uid } from "./uid";
 
 export const TEMPLATE_CATEGORIES = [
   { id: "welcome", label: "Welcome & Onboarding" },
@@ -66,7 +67,7 @@ const SPECS: StarterSpec[] = [
 
 function textBlock(section: Section, html: string, fontSize = 16, align: "left" | "center" | "right" = "left"): Block {
   return {
-    id: crypto.randomUUID(),
+    id: uid(),
     section,
     type: "text",
     html,
@@ -77,7 +78,7 @@ function textBlock(section: Section, html: string, fontSize = 16, align: "left" 
 function buildDesign(spec: StarterSpec): Design {
   const blocks: Block[] = [
     {
-      id: crypto.randomUUID(),
+      id: uid(),
       section: "header",
       type: "image",
       src: `https://placehold.co/600x200/${spec.color}/ffffff?text=${encodeURIComponent(spec.banner)}`,
@@ -90,7 +91,7 @@ function buildDesign(spec: StarterSpec): Design {
   ];
   if (spec.heroImage) {
     blocks.push({
-      id: crypto.randomUUID(),
+      id: uid(),
       section: "body",
       type: "image",
       src: `https://placehold.co/600x360/${spec.color}/ffffff?text=${encodeURIComponent(spec.name)}`,
@@ -103,7 +104,7 @@ function buildDesign(spec: StarterSpec): Design {
     blocks.push(textBlock("body", `<ul>${spec.bullets.map((item) => `<li>${item}</li>`).join("")}</ul>`));
   }
   blocks.push({
-    id: crypto.randomUUID(),
+    id: uid(),
     section: "body",
     type: "button",
     label: spec.cta,
