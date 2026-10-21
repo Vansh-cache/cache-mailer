@@ -78,13 +78,14 @@ function textBlock(section: Section, html: string, fontSize = 16, align: "left" 
 function buildDesign(spec: StarterSpec): Design {
   const blocks: Block[] = [
     {
+      // The banner title is a real text block on a coloured background - not
+      // words baked into a picture - so it can be clicked and retyped in the
+      // editor preview like any other text.
       id: uid(),
       section: "header",
-      type: "image",
-      src: `https://placehold.co/600x200/${spec.color}/ffffff?text=${encodeURIComponent(spec.banner)}`,
-      alt: spec.banner,
-      width: "100%",
-      align: "center",
+      type: "text",
+      html: `<p><span style="color:#ffffff"><strong>${spec.banner}</strong></span></p>`,
+      style: { fontSize: 34, align: "center", padding: "36px 40px", bg: `#${spec.color}` },
     },
     textBlock("body", `<p><strong>${spec.heading}</strong></p>`, 24),
     textBlock("body", `<p>${spec.intro}</p>`),

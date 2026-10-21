@@ -493,6 +493,82 @@ function SortableBlock({ block, editable }: { block: Block; editable: boolean })
   );
 }
 
+// Some older starter templates used a placehold.co picture with the title
+// baked into the image (e.g. ".../0f766e/ffffff?text=Welcome"). Words inside
+// a picture can never be typed over, so we detect that shape and offer a
+// one-click conversion to a real, editable text banner.
+function bakedBanner(src: string): { text: string; color: string } | null {
+  const match = /placehold\.co\/\d+x\d+\/([0-9a-f]{3,8})\/(?:[0-9a-f]{3,8})(?:\.[a-z]+)?\?text=([^&]+)/i.exec(src);
+  if (!match) return null;
+  try {
+    return { text: decodeURIComponent(match[2].replace(/\+/g, " ")).trim(), color: `#${match[1]}` };
+  } catch {
+    return null;
+  }
+}
+
+function escapeText(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Best-effort dominant colour of an already-loaded image, so a converted
+// title banner keeps roughly the picture's background colour.
+function sampleImageColor(src: string): string | null {
+  try {
+    const file = src.split("/").pop()?.split(/[?#]/)[0];
+    const img = [...document.images].find((candidate) => candidate.naturalWidth > 0 && (candidate.currentSrc === src || (file !== undefined && candidate.currentSrc.includes(file))));
+    if (!img) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = 16;
+    canvas.height = 16;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.drawImage(img, 0, 0, 16, 16);
+    const data = context.getImageData(0, 0, 16, 16).data;
+    let red = 0;
+    let green = 0;
+    let blue = 0;
+    let count = 0;
+    for (let index = 0; index < data.length; index += 16) {
+      if (data[index + 3] < 200) continue;
+      red += data[index];
+      green += data[index + 1];
+      blue += data[index + 2];
+      count += 1;
+    }
+    if (count === 0) return null;
+    const hex = (value: number) => Math.round(value / count).toString(16).padStart(2, "0");
+    return `#${hex(red)}${hex(green)}${hex(blue)}`;
+  } catch {
+    return null;
+  }
+}
+
+function convertImageToTitle(block: Extract<Block, { type: "image" }>): void {
+  const baked = bakedBanner(block.src);
+  const title = baked?.text || block.alt.trim() || block.overlayHeading?.trim() || "Your title";
+  const lines: string[] = [];
+  for (const extra of [block.overlayHeading, block.overlayText]) {
+    const line = extra?.trim();
+    if (line && line !== title && !lines.includes(line)) lines.push(line);
+  }
+  const html = [
+    `<p><span style="color:#ffffff"><strong>${escapeText(title)}</strong></span></p>`,
+    ...lines.map((line) => `<p><span style="color:#ffffff;font-size:16px">${escapeText(line)}</span></p>`),
+  ].join("");
+  useEditor.getState().change((draft) => {
+    const index = draft.blocks.findIndex((item) => item.id === block.id);
+    if (index === -1) return;
+    draft.blocks[index] = {
+      id: block.id,
+      section: block.section,
+      type: "text",
+      html,
+      style: { fontSize: 34, align: "center", padding: "36px 40px", bg: baked?.color || block.overlayBg || sampleImageColor(block.src) || "#0f766e" },
+    };
+  });
+}
+
 function BlockView({ block, editing = false }: { block: Block; editing?: boolean }) {
   const saveField = (field: "overlayHeading" | "overlayText" | "label", next: string) => {
     useEditor.getState().change((draft) => {
@@ -523,6 +599,14 @@ function BlockView({ block, editing = false }: { block: Block; editing?: boolean
                     <InlineEdit value={overlayText ?? ""} placeholder="Banner line - click to write" onSave={(next) => saveField("overlayText", next)} />
                   </p>
                   <p className="mt-2 text-[10px] uppercase tracking-wide opacity-70">Click the words above to edit them here</p>
+                  <button
+                    type="button"
+                    className="mt-2 rounded-full bg-white px-3 py-1.5 text-[11px] font-bold text-tide-800 shadow transition hover:bg-tide-50"
+                    onClick={(event) => { event.stopPropagation(); convertImageToTitle(block); }}
+                    title="The big title is part of the picture - turn it into editable text"
+                  >
+                    &#9998; Make the big picture title editable instead
+                  </button>
                 </>
               ) : (
                 <>
@@ -534,13 +618,19 @@ function BlockView({ block, editing = false }: { block: Block; editing?: boolean
           </div>
         );
       }
+      const baked = bakedBanner(block.src);
       return (
         <span className="relative block">
           <img src={mediaPath(block.src)} alt={block.alt} className="mx-auto max-w-full" style={{ width: block.width === "100%" ? "100%" : block.width }} />
           {editing && (
-            <span className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink-950/75 px-2.5 py-1 text-[10px] font-medium text-white shadow">
-              Want words on this image? Add Banner heading in the card on the left
-            </span>
+            <button
+              type="button"
+              className="absolute bottom-2 left-1/2 z-20 -translate-x-1/2 whitespace-nowrap rounded-full bg-tide-700 px-3 py-1.5 text-[11px] font-bold text-white shadow-lg ring-2 ring-white/70 transition hover:bg-tide-800"
+              onClick={(event) => { event.stopPropagation(); convertImageToTitle(block); }}
+              title="Words inside a picture cannot be edited - turn them into real editable text on a colour banner"
+            >
+              &#9998; Make &ldquo;{baked?.text || block.alt.trim() || "title"}&rdquo; editable text
+            </button>
           )}
         </span>
       );
@@ -669,9 +759,28 @@ function BlockSettings({ block }: { block: Block }) {
         </div>
       );
     }
-    case "image":
+    case "image": {
+      const baked = bakedBanner(block.src);
       return (
         <div className="space-y-2.5">
+          <div className="rounded-xl border border-tide-200 bg-tide-50 px-2.5 py-2">
+            <p className="text-[11px] leading-snug text-tide-900">
+              {baked ? (
+                <>The title <strong>&ldquo;{baked.text}&rdquo;</strong> is part of this picture, so it cannot be typed over.</>
+              ) : (
+                <>If the title you see (for example <strong>&ldquo;{block.alt.trim() || "Welcome"}&rdquo;</strong>) is inside this picture, it cannot be typed over - words in a picture are not text.</>
+              )}{" "}
+              Convert it to a real text banner on a colour background, then click the title in the preview and write anything you want.
+            </p>
+            <button
+              type="button"
+              className="mt-2 w-full rounded-lg bg-tide-700 px-2.5 py-1.5 text-[11px] font-bold text-white shadow-sm transition hover:bg-tide-800"
+              onClick={() => convertImageToTitle(block)}
+            >
+              &#9998; Make the title editable text
+            </button>
+            <p className="mt-1 text-[10px] leading-snug text-tide-700/70">This removes the picture. You can Undo (top bar) if you change your mind.</p>
+          </div>
           <label className="block">
             <span className="mb-1 block font-medium">Upload image (saved on the server)</span>
             <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={async (event) => {
@@ -795,6 +904,7 @@ function BlockSettings({ block }: { block: Block }) {
           {alignSelect(block.align, (next) => patch((current) => { if (current.type === "image") current.align = next; }))}
         </div>
       );
+    }
     case "button":
       return (
         <div className="space-y-2.5">
