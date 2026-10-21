@@ -47,7 +47,7 @@ export function EditorPage() {
     }, 30_000);
     return () => window.clearInterval(timer);
   }, [save]);
-  if (!template.data) return <p>Loading editorâ€¦</p>;
+  if (!template.data) return <p>Loading editor...</p>;
   return (
     <div className="flex h-[calc(100vh-3rem)] min-w-0 flex-col overflow-x-hidden">
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -90,8 +90,8 @@ function PlainOrBlocks() {
 }
 
 const SECTION_META: { id: Section; title: string; hint: string; addHint: string }[] = [
-  { id: "header", title: "Header", hint: "Top of the email â€” banner image, logo or title. The first thing people see.", addHint: "Add to header" },
-  { id: "body", title: "Body", hint: "Your main message â€” text, images and buttons.", addHint: "Add to body" },
+  { id: "header", title: "Header", hint: "Top of the email - banner image, logo or title. The first thing people see.", addHint: "Add to header" },
+  { id: "body", title: "Body", hint: "Your main message - text, images and buttons.", addHint: "Add to body" },
   { id: "footer", title: "Footer", hint: "Closing lines, small print and links. Company name, address and unsubscribe are added automatically below.", addHint: "Add to footer" },
 ];
 
@@ -206,7 +206,7 @@ function Canvas() {
               <SectionBand key={meta.id} section={meta.id} blocks={blocks.filter((block) => blockSection(block) === meta.id)} />
             ))}
             <p className="px-6 py-4 text-center text-xs text-slate-500">
-              Automatic footer: your company name and address{settings.includeUnsubscribe ? " Â· Unsubscribe" : ""} â€” change these in Settings.
+              Automatic footer: your company name and address{settings.includeUnsubscribe ? " · Unsubscribe" : ""} - change these in Settings.
             </p>
           </div>
         </SortableContext>
@@ -325,9 +325,9 @@ function Inspector() {
     <div className="panel space-y-3 overflow-auto p-3 text-sm">
       <UnsubscribeControl />
       <div className="rounded-lg bg-slate-50 p-2">
-        <p className="font-semibold">Editing: {meta.title} Â· {typeLabels[block.type]}</p>
+        <p className="font-semibold">Editing: {meta.title} · {typeLabels[block.type]}</p>
         <p className="text-xs text-slate-500">{meta.hint}</p>
-        <p className="mt-1 text-xs text-slate-500">Use â†‘ â†“ to reorder inside this section, duplicate, or delete.</p>
+        <p className="mt-1 text-xs text-slate-500">Use the up/down arrows to reorder inside this section, duplicate, or delete.</p>
       </div>
       <div className="flex gap-1">
         <Button variant="ghost" onClick={() => move(-1)}><ArrowUp size={14} /></Button>
@@ -386,11 +386,11 @@ function BlockSettings({ block }: { block: Block }) {
               const uploaded = await api.upload(file);
               patch((current) => { if (current.type === "image") current.src = uploaded.asset.url; });
             }} />
-            <span className="mt-1 block text-xs text-slate-500">JPG, PNG, GIF or WebP. The image must be reachable by receivers â€” see the note below.</span>
+            <span className="mt-1 block text-xs text-slate-500">JPG, PNG, GIF or WebP. The image must be reachable by receivers - see the note below.</span>
           </label>
           <label className="block">
-            <span className="mb-1 block font-medium">â€¦or image web address (URL)</span>
-            <input className={inputClass} value={block.src} onChange={(event) => patch((current) => { if (current.type === "image") current.src = event.target.value; })} placeholder="https://â€¦" />
+            <span className="mb-1 block font-medium">...or image web address (URL)</span>
+            <input className={inputClass} value={block.src} onChange={(event) => patch((current) => { if (current.type === "image") current.src = event.target.value; })} placeholder="https://..." />
             <span className="mt-1 block text-xs text-slate-500">For people outside this office, use a public https:// address, not 127.0.0.1 or a local file.</span>
           </label>
           <label className="block">
@@ -400,7 +400,7 @@ function BlockSettings({ block }: { block: Block }) {
           </label>
           <label className="block">
             <span className="mb-1 block font-medium">When clicked, open this link (optional)</span>
-            <input className={inputClass} placeholder="https://â€¦" value={block.href ?? ""} onChange={(event) => patch((current) => { if (current.type === "image") current.href = event.target.value; })} />
+            <input className={inputClass} placeholder="https://..." value={block.href ?? ""} onChange={(event) => patch((current) => { if (current.type === "image") current.href = event.target.value; })} />
           </label>
           <label className="block">
             <span className="mb-1 block font-medium">Image width</span>
@@ -424,7 +424,7 @@ function BlockSettings({ block }: { block: Block }) {
           </label>
           <label className="block">
             <span className="mb-1 block font-medium">Button opens this link</span>
-            <input className={inputClass} value={block.href} onChange={(event) => patch((current) => { if (current.type === "button") current.href = event.target.value; })} placeholder="https://â€¦" />
+            <input className={inputClass} value={block.href} onChange={(event) => patch((current) => { if (current.type === "button") current.href = event.target.value; })} placeholder="https://..." />
           </label>
           <label className="block">
             <span className="mb-1 block font-medium">Button colour</span>
@@ -545,7 +545,7 @@ function TestSend({ templateId }: { templateId: number }) {
         {senders.data?.senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.fromEmail}</option>)}
       </select>
       <select className={`${inputClass} w-52`} value={tagId} onChange={(event) => setTagId(Number(event.target.value))} aria-label="Test receivers by tag">
-        <option value={0}>Or send test to a tagâ€¦</option>
+        <option value={0}>Or send test to a tag...</option>
         {tags.data?.tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name} ({tag.count})</option>)}
       </select>
       <input
