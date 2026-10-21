@@ -2,6 +2,13 @@ import { config, graphConfigured } from "../config";
 import { AppError } from "../errors";
 import { buildMime, encodeMime, needsMime } from "./mime";
 
+export type InlineImage = {
+  filename: string;
+  content: Buffer;
+  cid: string;
+  contentType: string;
+};
+
 export type SendMessage = {
   fromEmail: string;
   fromName: string;
@@ -12,6 +19,7 @@ export type SendMessage = {
   text?: string;
   format?: "html" | "text";
   headers?: { name: string; value: string }[];
+  attachments?: InlineImage[];
 };
 
 export type SendResult =
@@ -86,6 +94,14 @@ export async function graphSend(message: SendMessage): Promise<SendResult> {
             from: { emailAddress: { address: message.fromEmail, name: message.fromName } },
             replyTo: message.replyTo ? [{ emailAddress: { address: message.replyTo } }] : undefined,
             internetMessageHeaders: message.headers ?? [],
+            attachments: (message.attachments ?? []).map((attachment) => ({
+              "@odata.type": "#microsoft.graph.fileAttachment",
+              name: attachment.filename,
+              contentType: attachment.contentType,
+              contentBytes: attachment.content.toString("base64"),
+              isInline: true,
+              contentId: attachment.cid,
+            })),
           },
           saveToSentItems: true,
         }),

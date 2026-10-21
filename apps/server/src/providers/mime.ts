@@ -23,17 +23,9 @@ export function needsMime(headers: { name: string }[] | undefined): boolean {
 
 export function buildMime(message: SendMessage): string {
   const boundary = `cdt_${randomBytes(8).toString("hex")}`;
+  const attachments = message.attachments ?? [];
   const text = message.text?.trim() || "This message is best viewed as HTML.";
-  const headerLines = [
-    `From: ${formatAddress(message.fromName, message.fromEmail)}`,
-    `To: ${message.to.replace(/[\r\n]/g, "")}`,
-    message.replyTo ? `Reply-To: ${message.replyTo.replace(/[\r\n]/g, "")}` : "",
-    `Subject: ${encodeWord(message.subject)}`,
-    "MIME-Version: 1.0",
-    ...(message.headers ?? []).map((header) => `${header.name.replace(/[\r\n]/g, "")}: ${header.value.replace(/[\r\n]/g, "")}`),
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-  ].filter(Boolean);
-  const parts = [
+  const alternativeParts = [
     `--${boundary}`,
     "Content-Type: text/plain; charset=utf-8",
     "Content-Transfer-Encoding: base64",
@@ -47,7 +39,38 @@ export function buildMime(message: SendMessage): string {
     `--${boundary}--`,
     "",
   ];
-  return `${headerLines.join("\r\n")}\r\n\r\n${parts.join("\r\n")}`;
+  const headerLines = [
+    `From: ${formatAddress(message.fromName, message.fromEmail)}`,
+    `To: ${message.to.replace(/[\r\n]/g, "")}`,
+    message.replyTo ? `Reply-To: ${message.replyTo.replace(/[\r\n]/g, "")}` : "",
+    `Subject: ${encodeWord(message.subject)}`,
+    "MIME-Version: 1.0",
+    ...(message.headers ?? []).map((header) => `${header.name.replace(/[\r\n]/g, "")}: ${header.value.replace(/[\r\n]/g, "")}`),
+  ];
+  if (attachments.length === 0) {
+    headerLines.push(`Content-Type: multipart/alternative; boundary="${boundary}"`);
+    return `${headerLines.filter(Boolean).join("\r\n")}\r\n\r\n${alternativeParts.join("\r\n")}`;
+  }
+  const relatedBoundary = `cdt_rel_${randomBytes(8).toString("hex")}`;
+  headerLines.push(`Content-Type: multipart/related; boundary="${relatedBoundary}"`);
+  const parts = [
+    `--${relatedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    ...alternativeParts.slice(0, -1),
+    ...attachments.flatMap((attachment) => [
+      `--${relatedBoundary}`,
+      `Content-Type: ${attachment.contentType}; name="${attachment.filename.replace(/["\r\n]/g, "")}"`,
+      "Content-Transfer-Encoding: base64",
+      `Content-ID: <${attachment.cid}>`,
+      `Content-Disposition: inline; filename="${attachment.filename.replace(/["\r\n]/g, "")}"`,
+      "",
+      fold(attachment.content.toString("base64")),
+    ]),
+    `--${relatedBoundary}--`,
+    "",
+  ];
+  return `${headerLines.filter(Boolean).join("\r\n")}\r\n\r\n${parts.join("\r\n")}`;
 }
 
 export function encodeMime(mime: string): string {

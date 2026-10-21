@@ -8,6 +8,7 @@ import { logger } from "../lib/logger";
 import { notifyAdmins } from "../lib/notify";
 import { sentItemContainsToken } from "../providers/graph";
 import { sendMail } from "../providers/mail";
+import { embedUploadedImages } from "../render/embed-images";
 import { applyLinkMap, extractLinks } from "../render/links";
 import { contactFields, personalize, personalizeHtml } from "../render/personalize";
 import { injectPixel, injectPreheader } from "../render/email";
@@ -115,13 +116,17 @@ export async function sendRecipient(id: bigint): Promise<void> {
 
   const unsubscribe = (row.campaign.htmlSnapshot ?? "").includes("[[UNSUB]]");
   const text = personalize(row.campaign.textSnapshot ?? "", fields).split("[[UNSUB]]").join(unsub);
+  // Embed server-saved images inside the message so they show for every
+  // receiver, even when the public media URL is unreachable from their network.
+  const embedded = row.campaign.sendFormat === "plain" ? { html, attachments: [] } : await embedUploadedImages(html);
   const result = await sendMail(row.sender.provider, {
     fromEmail: row.sender.fromEmail,
     fromName: row.sender.fromName,
     replyTo: row.sender.replyTo,
     to: row.contact.email,
     subject,
-    html,
+    html: embedded.html,
+    attachments: embedded.attachments,
     text: row.campaign.sendFormat === "plain" || unsubscribe ? text : undefined,
     format: row.campaign.sendFormat === "plain" ? "text" : "html",
     headers: [

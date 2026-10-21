@@ -6,8 +6,12 @@ import { classifyBounce, extractRecipient, extractStatusCode, isAutoReply, isNdr
 import { applyLinkMap, extractLinks } from "../src/render/links";
 import { buildMime, encodeMime, needsMime } from "../src/providers/mime";
 import { isTemporarySmtpError } from "../src/providers/smtp";
+import fs from "node:fs";
+import path from "node:path";
 import { personalize, personalizeHtml } from "../src/render/personalize";
 import { publicImageSrc } from "../src/render/email";
+import { embedUploadedImages } from "../src/render/embed-images";
+import { buildMime } from "../src/providers/mime";
 import { config } from "../src/config";
 import { emptyDesign } from "../src/render/design";
 import { renderDesign } from "../src/render/email";
@@ -43,6 +47,34 @@ test("uploaded images render against the configured public media base", () => {
   assert.equal(publicImageSrc("http://127.0.0.1:4000/media/abc123.png"), `${config.mediaUrl}/abc123.png`);
   assert.equal(publicImageSrc("http://172.16.200.30:4000/media/abc123.png?x=1"), `${config.mediaUrl}/abc123.png`);
   assert.equal(publicImageSrc("https://placehold.co/600x200/png"), "https://placehold.co/600x200/png");
+});
+
+test("uploaded images embed as CID attachments and MIME carries them inline", async () => {
+  const fileName = "0123456789abcdef0123456789abcdef.png";
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64");
+  const filePath = path.join(config.uploadDir, fileName);
+  await fs.promises.mkdir(config.uploadDir, { recursive: true });
+  await fs.promises.writeFile(filePath, png);
+  try {
+    const result = await embedUploadedImages(`<p>x</p><img src="http://127.0.0.1:4000/media/${fileName}" alt="a" />`);
+    assert.equal(result.attachments.length, 1);
+    assert.equal(result.attachments[0]?.contentType, "image/png");
+    assert.match(result.html, /src="cid:img[0-9a-f]{20}"/);
+    assert.ok(!result.html.includes("/media/"));
+    const mime = buildMime({
+      fromEmail: "a@example.com",
+      fromName: "A",
+      to: "b@example.com",
+      subject: "Hi",
+      html: result.html,
+      text: "x",
+      attachments: result.attachments,
+    });
+    assert.match(mime, /multipart\/related/);
+    assert.match(mime, new RegExp(`Content-ID: <${result.attachments[0]?.cid}>`));
+  } finally {
+    await fs.promises.unlink(filePath).catch(() => undefined);
+  }
 });
 
 test("link rewrite replaces longer urls first", () => {

@@ -127,6 +127,12 @@ export async function smtpSend(message: SendMessage): Promise<SendResult> {
       html: message.format === "text" ? undefined : message.html,
       text: message.format === "text" ? (message.text || message.html) : message.text,
       headers,
+      attachments: (message.attachments ?? []).map((attachment) => ({
+        filename: attachment.filename,
+        content: attachment.content,
+        cid: attachment.cid,
+        contentType: attachment.contentType,
+      })),
     });
     return { ok: true };
   } catch (error) {

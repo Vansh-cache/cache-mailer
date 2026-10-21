@@ -12,6 +12,7 @@ import { assertTeam, teamFilter } from "../lib/team";
 import { wrap } from "../middleware/error";
 import { sendMail } from "../providers/mail";
 import { designSchema } from "../render/design";
+import { embedUploadedImages } from "../render/embed-images";
 import { renderDesign } from "../render/email";
 import { contactFields, personalize, personalizeHtml } from "../render/personalize";
 
@@ -188,14 +189,16 @@ templatesRouter.post(
       const fields = contact
         ? contactFields(contact)
         : { first_name: email === normalizeEmail(req.user!.email) ? first : "there", email };
-      const html = personalizeHtml(rendered.html, fields).split("[[UNSUB]]").join(previewUnsub);
+      const personalized = personalizeHtml(rendered.html, fields).split("[[UNSUB]]").join(previewUnsub);
+      const embedded = await embedUploadedImages(personalized);
       const result = await sendMail(sender.provider, {
         fromEmail: sender.fromEmail,
         fromName: sender.fromName,
         replyTo: sender.replyTo,
         to: email,
         subject: `Test: ${template.name}`,
-        html,
+        html: embedded.html,
+        attachments: embedded.attachments,
         text: unsubscribe ? personalize(rendered.text, fields).split("[[UNSUB]]").join(previewUnsub) : undefined,
         headers: unsubscribe
           ? [

@@ -177,12 +177,12 @@ const SECTION_META: { id: Section; title: string; hint: string; addHint: string 
 function sectionMeta(section: Section) {
   return SECTION_META.find((item) => item.id === section) ?? SECTION_META[1];
 }
-const BLOCK_BUTTONS: { type: Block["type"]; label: string; detail: string; icon: LucideIcon }[] = [
-  { type: "text", label: "Text", detail: "Headline or paragraph", icon: Type },
-  { type: "image", label: "Image", detail: "Banner, photo or logo", icon: ImageIcon },
-  { type: "button", label: "Button", detail: "Clickable call-to-action", icon: MousePointerClick },
-  { type: "divider", label: "Divider line", detail: "Thin separator line", icon: Minus },
-  { type: "spacer", label: "Empty space", detail: "Blank vertical gap", icon: MoveVertical },
+const BLOCK_BUTTONS: { type: Block["type"]; label: string; short: string; detail: string; icon: LucideIcon }[] = [
+  { type: "text", label: "Text", short: "Text", detail: "Headline or paragraph", icon: Type },
+  { type: "image", label: "Image", short: "Image", detail: "Banner, photo or logo", icon: ImageIcon },
+  { type: "button", label: "Button", short: "Button", detail: "Clickable call-to-action", icon: MousePointerClick },
+  { type: "divider", label: "Divider line", short: "Divider", detail: "Thin separator line", icon: Minus },
+  { type: "spacer", label: "Empty space", short: "Space", detail: "Blank vertical gap", icon: MoveVertical },
 ];
 
 const BLOCK_CARD_META: Record<Block["type"], { label: string; icon: LucideIcon }> = {
@@ -202,6 +202,7 @@ function EditPanel() {
   const meta = sectionMeta(activeSection);
   const sectionBlocks = blocks.filter((block) => blockSection(block) === activeSection);
   const countFor = (section: Section) => blocks.filter((block) => blockSection(block) === section).length;
+  const [globalOpen, setGlobalOpen] = useState(false);
 
   const move = (block: Block, direction: -1 | 1) => useEditor.getState().change((draft) => {
     const index = draft.blocks.findIndex((item) => item.id === block.id);
@@ -228,43 +229,42 @@ function EditPanel() {
 
   return (
     <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.05)]">
-      <div className="shrink-0 border-b border-slate-100 px-3 pb-3 pt-3">
-        <div className="flex items-center gap-2">
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-tide-700 text-white"><LayoutTemplate size={14} /></span>
-          <h3 className="text-[13px] font-semibold text-ink-950">Template Sections <span className="font-normal text-slate-400">({blocks.length} Block{blocks.length === 1 ? "" : "s"})</span></h3>
+      <div className="shrink-0 border-b border-slate-100 px-2.5 py-2">
+        <div className="flex items-center gap-1.5">
+          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-tide-700 text-white"><LayoutTemplate size={12} /></span>
+          <h3 className="min-w-0 flex-1 truncate text-[12px] font-semibold text-ink-950">Sections <span className="font-normal text-slate-400">({blocks.length})</span></h3>
+          <span className="truncate text-[10px] text-slate-400" title={meta.hint}>{meta.title} selected</span>
         </div>
-        <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
+        <div className="mt-1.5 grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-0.5">
           {SECTION_META.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => useEditor.getState().setActiveSection(item.id)}
-              className={`rounded-lg px-1 py-1.5 text-[12px] leading-tight transition ${activeSection === item.id ? "bg-tide-700 font-semibold text-white shadow-sm" : "font-medium text-slate-600 hover:bg-white hover:text-ink-950"}`}
+              className={`rounded-md px-1 py-1 text-[11px] leading-tight transition ${activeSection === item.id ? "bg-tide-700 font-semibold text-white shadow-sm" : "font-medium text-slate-600 hover:bg-white hover:text-ink-950"}`}
             >
-              {item.title}
-              <span className={`block text-[10px] font-normal ${activeSection === item.id ? "text-white/75" : "text-slate-400"}`}>{countFor(item.id)} item{countFor(item.id) === 1 ? "" : "s"}</span>
+              {item.title} <span className={`text-[10px] font-normal ${activeSection === item.id ? "text-white/75" : "text-slate-400"}`}>({countFor(item.id)})</span>
             </button>
           ))}
         </div>
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <div className="mt-1.5 flex flex-nowrap gap-1 overflow-x-auto pb-0.5">
           {BLOCK_BUTTONS.map((item) => (
             <button
               key={item.type}
               type="button"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[12px] font-medium text-slate-700 shadow-sm transition hover:border-tide-600 hover:text-tide-700"
+              className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 text-[11px] font-medium text-slate-700 shadow-sm transition hover:border-tide-600 hover:text-tide-700"
               onClick={() => addBlock(item.type, activeSection)}
-              title={`Add ${item.label.toLowerCase()} to the ${meta.title.toLowerCase()}`}
+              title={`Add ${item.label.toLowerCase()} to the ${meta.title.toLowerCase()} - ${item.detail.toLowerCase()}`}
             >
-              <Plus size={13} className="text-tide-700" />
-              <item.icon size={13} className="text-tide-700" />
-              {item.label}
+              <Plus size={12} className="text-tide-700" />
+              <item.icon size={12} className="text-tide-700" />
+              {item.short}
             </button>
           ))}
         </div>
-        <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{meta.hint} New blocks appear in the preview instantly - edit them in the cards below.</p>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto bg-slate-50/60 px-3 py-3">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50/60 px-2.5 py-2">
         {sectionBlocks.length === 0 && (
           <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white px-4 py-8 text-center">
             <LayoutTemplate size={28} className="mx-auto text-slate-300" />
@@ -290,10 +290,12 @@ function EditPanel() {
                 <button type="button" className={cardAction} onClick={(event) => { event.stopPropagation(); duplicate(block); }} title="Duplicate block" aria-label="Duplicate block"><Copy size={13} /></button>
                 <button type="button" className={`${cardAction} hover:border-rose-300 hover:text-rose-600`} onClick={(event) => { event.stopPropagation(); remove(block); }} title="Delete block" aria-label="Delete block"><Trash2 size={13} /></button>
               </header>
-              <div className="pointer-events-none max-h-36 overflow-hidden border-b border-slate-100 bg-white px-1 py-1">
-                <BlockView block={block} />
-              </div>
-              <div className="px-3 py-2.5 [&_label>span]:mb-1 [&_label>span]:text-[11px] [&_label>span]:font-semibold [&_label>span]:text-slate-600">
+              {block.type !== "image" && (
+                <div className="pointer-events-none max-h-24 overflow-hidden border-b border-slate-100 bg-white px-1 py-1">
+                  <BlockView block={block} />
+                </div>
+              )}
+              <div className="px-2.5 py-2 [&_label>span]:mb-1 [&_label>span]:text-[11px] [&_label>span]:font-semibold [&_label>span]:text-slate-600">
                 <BlockSettings block={block} />
               </div>
             </article>
@@ -301,11 +303,13 @@ function EditPanel() {
         })}
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <header className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
-            <SlidersHorizontal size={14} className="text-tide-700" />
-            <h4 className="text-[12px] font-semibold text-ink-950">Global Container &amp; Font Styling</h4>
-          </header>
-          <div className="space-y-3 px-3 py-3">
+          <button type="button" className="flex w-full items-center gap-2 px-3 py-2 text-left" onClick={() => setGlobalOpen((open) => !open)} aria-expanded={globalOpen}>
+            <SlidersHorizontal size={14} className="shrink-0 text-tide-700" />
+            <h4 className="flex-1 text-[12px] font-semibold text-ink-950">Global Container &amp; Font Styling</h4>
+            <span className="text-[11px] font-medium text-tide-700">{globalOpen ? "Hide" : "Show"}</span>
+          </button>
+          {globalOpen && (
+          <div className="space-y-3 border-t border-slate-100 px-3 py-3">
             <label className="block">
               <span className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-600">Email Container Width <span className="font-bold text-tide-700">{settings.width}px</span></span>
               <input
@@ -336,6 +340,7 @@ function EditPanel() {
             </div>
             <UnsubscribeControl />
           </div>
+          )}
         </section>
 
         <button type="button" className={`${toolbarButton} w-full`} onClick={() => navigate("/templates")}>
@@ -553,7 +558,6 @@ function BlockSettings({ block }: { block: Block }) {
     case "image":
       return (
         <div className="space-y-2.5">
-          <img src={mediaPath(block.src)} alt={block.alt} className="max-h-28 w-full rounded border border-slate-200 object-contain" />
           <label className="block">
             <span className="mb-1 block font-medium">Upload image (saved on the server)</span>
             <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={async (event) => {
