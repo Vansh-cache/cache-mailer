@@ -9,11 +9,10 @@ import Underline from "@tiptap/extension-underline";
 import { EditorContent, useEditor as useTipTap } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, Copy, Eye, GripVertical, Image as ImageIcon, LayoutTemplate, Minus, MousePointerClick, MoveVertical, Plus, Redo2, Send, Sparkles, Trash2, Type, Undo2, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Copy, Eye, GripVertical, Image as ImageIcon, LayoutTemplate, Minus, MousePointerClick, MoveVertical, Pencil, Plus, Redo2, Send, SlidersHorizontal, Sparkles, Trash2, Type, Undo2, type LucideIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate, useParams } from "react-router-dom";
-import { HexColorPicker } from "react-colorful";
 import { Button, inputClass } from "../components/ui";
 import { api, mediaPath, type Block, type Section } from "../lib/api";
 import { uid } from "../lib/uid";
@@ -34,6 +33,7 @@ export function EditorPage() {
   const canRedo = useEditor((state) => state.future.length > 0);
   const name = useEditor((state) => state.name);
   const compose = useEditor((state) => state.settings.compose ?? "blocks");
+  const [mode, setMode] = useState<"view" | "edit">("view");
   useEffect(() => {
     if (template.data) load(template.data.template.name, template.data.template.designJson);
   }, [template.data, load]);
@@ -53,24 +53,66 @@ export function EditorPage() {
     return () => window.clearInterval(timer);
   }, [save]);
   if (!template.data) return <div className="grid h-[calc(100vh-3rem)] place-items-center rounded-2xl border border-slate-200 bg-white text-sm text-slate-500 shadow-sm">Loading editor...</div>;
+  const nameInput = (
+    <input
+      className="h-9 min-w-40 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-ink-950 transition placeholder:text-slate-400 hover:border-slate-200 focus:border-tide-600 focus:bg-white focus:ring-2 focus:ring-tide-600/20 sm:max-w-xs"
+      value={name}
+      onChange={(event) => useEditor.getState().setName(event.target.value)}
+      aria-label="Template name"
+      placeholder="Template name"
+    />
+  );
+  const statusDot = (
+    <span className={`hidden items-center gap-1.5 text-xs font-medium lg:inline-flex ${dirty ? "text-amber-600" : "text-emerald-600"}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${dirty ? "bg-amber-500" : "bg-emerald-500"}`} />
+      {dirty ? "Unsaved changes" : "Saved"}
+    </span>
+  );
+  const saveButton = (
+    <Button className="h-8 rounded-lg px-3.5 py-0 text-[13px] shadow-sm" onClick={() => save.mutate()} disabled={save.isPending}>
+      {dirty ? "Save" : <span className="inline-flex items-center gap-1"><Check size={14} /> Saved</span>}
+    </Button>
+  );
+  const composeToggle = (
+    <button
+      type="button"
+      className={toolbarButton}
+      onClick={() => useEditor.getState().change((draft) => { draft.settings.compose = draft.settings.compose === "plain" ? "blocks" : "plain"; })}
+    >
+      <Type size={14} />
+      {compose === "plain" ? "Block editor" : "Plain writing"}
+    </button>
+  );
   return (
     <div className="flex h-[calc(100vh-3rem)] min-w-0 flex-col gap-2.5 overflow-hidden">
-      <header className="shrink-0 rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
-        <div className="flex min-h-12 flex-wrap items-center gap-1.5 px-3 py-2">
-          <button type="button" className={`${toolbarButton} w-8 px-0`} onClick={() => navigate("/templates")} title="Back to Email Templates" aria-label="Back to Email Templates">
-            <ArrowLeft size={15} />
+      {mode === "view" ? (
+        <header className="shrink-0 rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
+          <div className="flex min-h-12 flex-wrap items-center gap-1.5 px-3 py-2">
+            <button type="button" className={`${toolbarButton} w-8 px-0`} onClick={() => navigate("/templates")} title="Back to Email Templates" aria-label="Back to Email Templates">
+              <ArrowLeft size={15} />
+            </button>
+            {nameInput}
+            {statusDot}
+            <div className="mx-1 hidden h-6 w-px bg-slate-200 sm:block" />
+            <PreviewButton />
+            {composeToggle}
+            <div className="ml-auto flex items-center gap-1.5">
+              {saveButton}
+              <Button className="h-8 rounded-lg px-4 py-0 text-[13px] shadow-sm" onClick={() => setMode("edit")}>
+                <span className="inline-flex items-center gap-1.5"><Pencil size={14} /> Edit</span>
+              </Button>
+            </div>
+          </div>
+          <TestSend templateId={id} />
+        </header>
+      ) : (
+        <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200/80 bg-white px-3 py-2 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
+          <button type="button" className={toolbarButton} onClick={() => setMode("view")} title="Back to template view" aria-label="Back to template view">
+            <ArrowLeft size={14} /> Back
           </button>
-          <input
-            className="h-9 min-w-44 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-ink-950 transition placeholder:text-slate-400 hover:border-slate-200 focus:border-tide-600 focus:bg-white focus:ring-2 focus:ring-tide-600/20 sm:max-w-xs"
-            value={name}
-            onChange={(event) => useEditor.getState().setName(event.target.value)}
-            aria-label="Template name"
-            placeholder="Template name"
-          />
-          <span className={`mr-1 hidden items-center gap-1.5 text-xs font-medium lg:inline-flex ${dirty ? "text-amber-600" : "text-emerald-600"}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${dirty ? "bg-amber-500" : "bg-emerald-500"}`} />
-            {dirty ? "Unsaved changes" : "Saved"}
-          </span>
+          {nameInput}
+          <span className="rounded-full bg-tide-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Editing</span>
+          {statusDot}
           <div className="mx-1 hidden h-6 w-px bg-slate-200 sm:block" />
           <button type="button" className={`${toolbarButton} w-8 px-0`} onClick={() => useEditor.getState().undo()} disabled={!canUndo} title="Undo" aria-label="Undo">
             <Undo2 size={14} />
@@ -79,26 +121,16 @@ export function EditorPage() {
             <Redo2 size={14} />
           </button>
           <PreviewButton />
-          <button
-            type="button"
-            className={toolbarButton}
-            onClick={() => useEditor.getState().change((draft) => { draft.settings.compose = draft.settings.compose === "plain" ? "blocks" : "plain"; })}
-          >
-            <Type size={14} />
-            {compose === "plain" ? "Block editor" : "Plain writing"}
-          </button>
-          <Button className="h-8 rounded-lg px-3.5 py-0 text-[13px] shadow-sm" onClick={() => save.mutate()} disabled={save.isPending}>
-            {dirty ? "Save" : <span className="inline-flex items-center gap-1"><Check size={14} /> Saved</span>}
-          </Button>
-        </div>
-        <TestSend templateId={id} />
-      </header>
-      <PlainOrBlocks />
+          {composeToggle}
+          <div className="ml-auto">{saveButton}</div>
+        </header>
+      )}
+      <EditorBody mode={mode} />
     </div>
   );
 }
 
-function PlainOrBlocks() {
+function EditorBody({ mode }: { mode: "view" | "edit" }) {
   const compose = useEditor((state) => state.settings.compose ?? "blocks");
   const plainBody = useEditor((state) => state.settings.plainBody ?? "");
   if (compose === "plain") {
@@ -109,10 +141,11 @@ function PlainOrBlocks() {
             <h2 className="text-[13px] font-semibold text-ink-950">Plain writing</h2>
             <p className="text-[11px] text-slate-500">Write naturally. Use {"{{first_name | there}}"} to personalise the greeting.</p>
           </div>
-          <span className="rounded-full bg-tide-50 px-2 py-0.5 text-[11px] font-medium text-tide-700">Text email</span>
+          <span className="rounded-full bg-tide-50 px-2 py-0.5 text-[11px] font-medium text-tide-700">{mode === "edit" ? "Editing" : "Text email"}</span>
         </div>
         <textarea
-          className="min-h-0 w-full flex-1 resize-none bg-white px-6 py-5 font-serif text-[17px] leading-8 text-ink-900 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-tide-600/20"
+          readOnly={mode === "view"}
+          className={`min-h-0 w-full flex-1 resize-none px-6 py-5 font-serif text-[17px] leading-8 text-ink-900 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-tide-600/20 ${mode === "view" ? "bg-slate-50/50" : "bg-white"}`}
           value={plainBody}
           placeholder="Write the email as plain text. Use {{first_name | there}} for a name."
           onChange={(event) => useEditor.getState().change((draft) => { draft.settings.plainBody = event.target.value; })}
@@ -120,11 +153,17 @@ function PlainOrBlocks() {
       </div>
     );
   }
+  if (mode === "view") {
+    return (
+      <div className="min-h-0 min-w-0 flex-1">
+        <Canvas editable={false} maxScale={1.6} />
+      </div>
+    );
+  }
   return (
-    <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[228px_minmax(0,1fr)_272px] gap-2.5">
-      <ContentPanel />
-      <Canvas />
-      <Inspector />
+    <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[360px_minmax(0,1fr)] gap-2.5">
+      <EditPanel />
+      <Canvas editable maxScale={1.3} />
     </div>
   );
 }
@@ -146,81 +185,168 @@ const BLOCK_BUTTONS: { type: Block["type"]; label: string; detail: string; icon:
   { type: "spacer", label: "Empty space", detail: "Blank vertical gap", icon: MoveVertical },
 ];
 
-function ContentPanel() {
+const BLOCK_CARD_META: Record<Block["type"], { label: string; icon: LucideIcon }> = {
+  text: { label: "Content section", icon: Type },
+  image: { label: "Image section", icon: ImageIcon },
+  button: { label: "CTA button", icon: MousePointerClick },
+  divider: { label: "Divider", icon: Minus },
+  spacer: { label: "Empty space", icon: MoveVertical },
+};
+
+function EditPanel() {
   const navigate = useNavigate();
   const activeSection = useEditor((state) => state.activeSection);
   const blocks = useEditor((state) => state.blocks);
+  const selectedId = useEditor((state) => state.selectedId);
+  const settings = useEditor((state) => state.settings);
   const meta = sectionMeta(activeSection);
+  const sectionBlocks = blocks.filter((block) => blockSection(block) === activeSection);
   const countFor = (section: Section) => blocks.filter((block) => blockSection(block) === section).length;
+
+  const move = (block: Block, direction: -1 | 1) => useEditor.getState().change((draft) => {
+    const index = draft.blocks.findIndex((item) => item.id === block.id);
+    const next = index + direction;
+    if (next < 0 || next >= draft.blocks.length) return;
+    const neighbor = draft.blocks[next];
+    if (!neighbor || blockSection(neighbor) !== blockSection(block)) return;
+    const [item] = draft.blocks.splice(index, 1);
+    if (item) draft.blocks.splice(next, 0, item);
+  });
+  const duplicate = (block: Block) => useEditor.getState().change((draft) => {
+    const index = draft.blocks.findIndex((item) => item.id === block.id);
+    const original = draft.blocks[index];
+    if (!original) return;
+    const copy = JSON.parse(JSON.stringify(original)) as Block;
+    copy.id = uid();
+    draft.blocks.splice(index + 1, 0, copy);
+    useEditor.getState().select(copy.id);
+  });
+  const remove = (block: Block) => useEditor.getState().change((draft) => {
+    draft.blocks = draft.blocks.filter((item) => item.id !== block.id);
+  });
+  const cardAction = "grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-tide-600 hover:text-tide-700 disabled:cursor-not-allowed disabled:opacity-35";
+
   return (
     <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,23,42,0.05)]">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <section className="px-3 pb-3 pt-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Email section</h3>
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-tide-700">Step 1</span>
-          </div>
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
-            {SECTION_META.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => useEditor.getState().setActiveSection(item.id)}
-                className={`rounded-lg px-1 py-1.5 text-[12px] leading-tight transition ${activeSection === item.id ? "bg-tide-700 font-semibold text-white shadow-sm" : "font-medium text-slate-600 hover:bg-white hover:text-ink-950"}`}
-              >
-                {item.title}
-                <span className={`block text-[10px] font-normal ${activeSection === item.id ? "text-white/75" : "text-slate-400"}`}>{countFor(item.id)} item{countFor(item.id) === 1 ? "" : "s"}</span>
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{meta.hint}</p>
-        </section>
-
-        <section className="border-t border-slate-100 px-3 py-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Add to {meta.title}</h3>
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-tide-700">Step 2</span>
-          </div>
-          <div className="space-y-1">
-            {BLOCK_BUTTONS.map((item) => (
-              <button
-                key={item.type}
-                type="button"
-                className="group flex w-full items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-left shadow-sm transition hover:-translate-y-px hover:border-tide-600 hover:shadow"
-                onClick={() => addBlock(item.type, activeSection)}
-              >
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-tide-50 text-tide-700 transition group-hover:bg-tide-700 group-hover:text-white">
-                  <item.icon size={15} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-semibold leading-tight text-ink-900">{item.label}</span>
-                  <span className="block truncate text-[11px] leading-tight text-slate-500">{item.detail}</span>
-                </span>
-                <Plus size={14} className="shrink-0 text-slate-300 transition group-hover:text-tide-700" />
-              </button>
-            ))}
-          </div>
-          <p className="mt-2 text-[11px] leading-relaxed text-slate-400">Click a block in the preview to edit it on the right.</p>
-        </section>
+      <div className="shrink-0 border-b border-slate-100 px-3 pb-3 pt-3">
+        <div className="flex items-center gap-2">
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-tide-700 text-white"><LayoutTemplate size={14} /></span>
+          <h3 className="text-[13px] font-semibold text-ink-950">Template Sections <span className="font-normal text-slate-400">({blocks.length} Block{blocks.length === 1 ? "" : "s"})</span></h3>
+        </div>
+        <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
+          {SECTION_META.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => useEditor.getState().setActiveSection(item.id)}
+              className={`rounded-lg px-1 py-1.5 text-[12px] leading-tight transition ${activeSection === item.id ? "bg-tide-700 font-semibold text-white shadow-sm" : "font-medium text-slate-600 hover:bg-white hover:text-ink-950"}`}
+            >
+              {item.title}
+              <span className={`block text-[10px] font-normal ${activeSection === item.id ? "text-white/75" : "text-slate-400"}`}>{countFor(item.id)} item{countFor(item.id) === 1 ? "" : "s"}</span>
+            </button>
+          ))}
+        </div>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {BLOCK_BUTTONS.map((item) => (
+            <button
+              key={item.type}
+              type="button"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[12px] font-medium text-slate-700 shadow-sm transition hover:border-tide-600 hover:text-tide-700"
+              onClick={() => addBlock(item.type, activeSection)}
+              title={`Add ${item.label.toLowerCase()} to the ${meta.title.toLowerCase()}`}
+            >
+              <Plus size={13} className="text-tide-700" />
+              <item.icon size={13} className="text-tide-700" />
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{meta.hint} New blocks appear in the preview instantly - edit them in the cards below.</p>
       </div>
 
-      <div className="shrink-0 border-t border-slate-100 bg-slate-50/70 px-3 py-3">
-        <div className="flex items-start gap-2">
-          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white text-tide-700 shadow-sm"><Sparkles size={14} /></span>
-          <div className="min-w-0">
-            <h3 className="text-[13px] font-semibold leading-tight text-ink-900">Starter templates</h3>
-            <p className="mt-0.5 text-[11px] leading-snug text-slate-500">Use a ready-made layout, then replace the content.</p>
+      <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto bg-slate-50/60 px-3 py-3">
+        {sectionBlocks.length === 0 && (
+          <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-white px-4 py-8 text-center">
+            <LayoutTemplate size={28} className="mx-auto text-slate-300" />
+            <p className="mt-2 text-[13px] font-semibold text-ink-900">Blank {meta.title} (No Sections Added)</p>
+            <p className="mx-auto mt-1 max-w-60 text-[11px] leading-relaxed text-slate-500">Click any add button above to add Text, Image, Button, Divider or Empty space sections in whatever order you prefer.</p>
           </div>
-        </div>
-        <button type="button" className={`${toolbarButton} mt-2.5 w-full`} onClick={() => navigate("/templates")}>
-          <LayoutTemplate size={14} /> Browse templates
+        )}
+        {sectionBlocks.map((block, index) => {
+          const card = BLOCK_CARD_META[block.type];
+          const selected = selectedId === block.id;
+          return (
+            <article
+              key={block.id}
+              className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition ${selected ? "border-tide-600 ring-2 ring-tide-600/25" : "border-slate-200"}`}
+              onClick={() => useEditor.getState().select(block.id)}
+            >
+              <header className="flex items-center gap-1.5 border-b border-slate-100 px-2.5 py-2">
+                <span className="rounded-md bg-tide-700 px-1.5 py-0.5 text-[10px] font-bold text-white">#{index + 1}</span>
+                <card.icon size={13} className="shrink-0 text-tide-700" />
+                <span className="min-w-0 flex-1 truncate text-[11px] font-bold uppercase tracking-wide text-ink-900">{card.label}</span>
+                <button type="button" className={cardAction} disabled={index === 0} onClick={(event) => { event.stopPropagation(); move(block, -1); }} title="Move up" aria-label="Move block up"><ArrowUp size={13} /></button>
+                <button type="button" className={cardAction} disabled={index === sectionBlocks.length - 1} onClick={(event) => { event.stopPropagation(); move(block, 1); }} title="Move down" aria-label="Move block down"><ArrowDown size={13} /></button>
+                <button type="button" className={cardAction} onClick={(event) => { event.stopPropagation(); duplicate(block); }} title="Duplicate block" aria-label="Duplicate block"><Copy size={13} /></button>
+                <button type="button" className={`${cardAction} hover:border-rose-300 hover:text-rose-600`} onClick={(event) => { event.stopPropagation(); remove(block); }} title="Delete block" aria-label="Delete block"><Trash2 size={13} /></button>
+              </header>
+              <div className="pointer-events-none max-h-36 overflow-hidden border-b border-slate-100 bg-white px-1 py-1">
+                <BlockView block={block} />
+              </div>
+              <div className="px-3 py-2.5 [&_label>span]:mb-1 [&_label>span]:text-[11px] [&_label>span]:font-semibold [&_label>span]:text-slate-600">
+                <BlockSettings block={block} />
+              </div>
+            </article>
+          );
+        })}
+
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <header className="flex items-center gap-2 border-b border-slate-100 px-3 py-2">
+            <SlidersHorizontal size={14} className="text-tide-700" />
+            <h4 className="text-[12px] font-semibold text-ink-950">Global Container &amp; Font Styling</h4>
+          </header>
+          <div className="space-y-3 px-3 py-3">
+            <label className="block">
+              <span className="mb-1 flex items-center justify-between text-[11px] font-semibold text-slate-600">Email Container Width <span className="font-bold text-tide-700">{settings.width}px</span></span>
+              <input
+                type="range"
+                min={320}
+                max={800}
+                step={10}
+                value={settings.width}
+                onChange={(event) => useEditor.getState().change((draft) => { draft.settings.width = Number(event.target.value); })}
+                className="w-full accent-teal-700"
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold text-slate-600">Outer Background</span>
+                <span className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 shadow-sm">
+                  <input type="color" value={settings.outerBg} onChange={(event) => useEditor.getState().change((draft) => { draft.settings.outerBg = event.target.value; })} className="h-6 w-8 shrink-0 cursor-pointer rounded border border-slate-200 bg-transparent p-0" />
+                  <span className="truncate text-[11px] text-slate-500">{settings.outerBg}</span>
+                </span>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-semibold text-slate-600">Content Background</span>
+                <span className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 shadow-sm">
+                  <input type="color" value={settings.contentBg} onChange={(event) => useEditor.getState().change((draft) => { draft.settings.contentBg = event.target.value; })} className="h-6 w-8 shrink-0 cursor-pointer rounded border border-slate-200 bg-transparent p-0" />
+                  <span className="truncate text-[11px] text-slate-500">{settings.contentBg}</span>
+                </span>
+              </label>
+            </div>
+            <UnsubscribeControl />
+          </div>
+        </section>
+
+        <button type="button" className={`${toolbarButton} w-full`} onClick={() => navigate("/templates")}>
+          <Sparkles size={14} /> Browse starter templates
         </button>
       </div>
     </aside>
   );
 }
 
-function Canvas() {
+function Canvas({ editable, maxScale }: { editable: boolean; maxScale: number }) {
   const blocks = useEditor((state) => state.blocks);
   const settings = useEditor((state) => state.settings);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -245,14 +371,14 @@ function Canvas() {
       const styles = getComputedStyle(frame);
       const pad = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
       const available = frame.clientWidth - pad;
-      const next = settings.width > 0 ? Math.min(1, available / settings.width) : 1;
+      const next = settings.width > 0 ? Math.min(maxScale, available / settings.width) : 1;
       setScale(next > 0 ? next : 1);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(frame);
     return () => observer.disconnect();
-  }, [settings.width]);
+  }, [settings.width, maxScale]);
   return (
     <div ref={frameRef} className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto rounded-2xl border border-slate-200/70 p-4 shadow-inner" style={{ background: settings.outerBg }}>
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -266,7 +392,7 @@ function Canvas() {
             }}
           >
             {SECTION_META.map((meta) => (
-              <SectionBand key={meta.id} section={meta.id} blocks={blocks.filter((block) => blockSection(block) === meta.id)} />
+              <SectionBand key={meta.id} section={meta.id} blocks={blocks.filter((block) => blockSection(block) === meta.id)} editable={editable} />
             ))}
             <p className="border-t border-slate-100 px-6 py-3 text-center text-[11px] text-slate-400">
               Automatic footer: your company name and address{settings.includeUnsubscribe ? " · Unsubscribe" : ""} - change these in Settings.
@@ -284,7 +410,7 @@ const SECTION_EMPTY: Record<Section, { label: string; type: Block["type"] }> = {
   footer: { label: "footer text", type: "text" },
 };
 
-function SectionBand({ section, blocks }: { section: Section; blocks: Block[] }) {
+function SectionBand({ section, blocks, editable }: { section: Section; blocks: Block[]; editable: boolean }) {
   const meta = sectionMeta(section);
   const selectedId = useEditor((state) => state.selectedId);
   const activeSection = useEditor((state) => state.activeSection);
@@ -293,15 +419,15 @@ function SectionBand({ section, blocks }: { section: Section; blocks: Block[] })
   return (
     <section className={`border-b ${hasSelected || isActive ? "border-tide-600" : "border-slate-200"}`}>
       <header
-        className={`flex cursor-pointer items-center justify-between gap-2 px-3 py-1 ${isActive ? "bg-tide-700 text-white" : "bg-slate-50 text-slate-600 hover:bg-slate-100"}`}
-        onClick={() => useEditor.getState().setActiveSection(section)}
-        title={`Add content to the ${meta.title.toLowerCase()}`}
+        className={`flex items-center justify-between gap-2 px-3 py-1 ${editable ? "cursor-pointer" : ""} ${editable && isActive ? "bg-tide-700 text-white" : "bg-slate-50 text-slate-600"}`}
+        onClick={() => { if (editable) useEditor.getState().setActiveSection(section); }}
+        title={editable ? `Add content to the ${meta.title.toLowerCase()}` : meta.title}
       >
         <span className="text-[10px] font-bold uppercase tracking-[0.12em]">{meta.title}</span>
-        <span className={`truncate text-[10px] ${isActive ? "text-white/75" : "text-slate-400"}`}>{isActive ? "Adding content here" : meta.hint}</span>
+        <span className={`truncate text-[10px] ${editable && isActive ? "text-white/75" : "text-slate-400"}`}>{editable && isActive ? "Adding content here" : meta.hint}</span>
       </header>
-      {blocks.map((block) => <SortableBlock key={block.id} block={block} />)}
-      {blocks.length === 0 && (
+      {blocks.map((block) => <SortableBlock key={block.id} block={block} editable={editable} />)}
+      {blocks.length === 0 && (editable ? (
         <button
           type="button"
           className="m-2.5 block w-[calc(100%-1.25rem)] rounded-xl border border-dashed border-slate-300 bg-slate-50/50 px-3 py-3 text-[13px] text-slate-500 transition hover:border-tide-600 hover:bg-tide-50 hover:text-tide-700"
@@ -309,18 +435,22 @@ function SectionBand({ section, blocks }: { section: Section; blocks: Block[] })
         >
           <Plus size={14} className="mr-1 inline" /> Add a {SECTION_EMPTY[section].label} to the {meta.title.toLowerCase()}
         </button>
-      )}
+      ) : (
+        <p className="px-6 py-3 text-center text-[11px] italic text-slate-300">No {meta.title.toLowerCase()} content</p>
+      ))}
     </section>
   );
 }
 
-function SortableBlock({ block }: { block: Block }) {
+function SortableBlock({ block, editable }: { block: Block; editable: boolean }) {
   const selected = useEditor((state) => state.selectedId === block.id);
-  const sortable = useSortable({ id: block.id });
+  const sortable = useSortable({ id: block.id, disabled: !editable });
   const style = { transform: CSS.Transform.toString(sortable.transform), transition: sortable.transition };
   return (
-    <div ref={sortable.setNodeRef} style={style} className={`group relative transition-shadow ${selected ? "z-10 ring-2 ring-inset ring-tide-600" : "hover:ring-1 hover:ring-inset hover:ring-tide-300"}`} onClick={() => useEditor.getState().select(block.id)}>
-      <button className="absolute left-1 top-1 z-20 hidden h-6 w-6 cursor-grab place-items-center rounded-md bg-white/90 text-slate-400 shadow-sm ring-1 ring-slate-200 group-hover:grid" {...sortable.attributes} {...sortable.listeners}><GripVertical size={13} /></button>
+    <div ref={sortable.setNodeRef} style={style} className={`group relative transition-shadow ${editable && selected ? "z-10 ring-2 ring-inset ring-tide-600" : editable ? "hover:ring-1 hover:ring-inset hover:ring-tide-300" : ""}`} onClick={() => { if (editable) useEditor.getState().select(block.id); }}>
+      {editable && (
+        <button className="absolute left-1 top-1 z-20 hidden h-6 w-6 cursor-grab place-items-center rounded-md bg-white/90 text-slate-400 shadow-sm ring-1 ring-slate-200 group-hover:grid" {...sortable.attributes} {...sortable.listeners}><GripVertical size={13} /></button>
+      )}
       <BlockView block={block} />
     </div>
   );
@@ -360,72 +490,6 @@ function UnsubscribeControl() {
         Add it to the footer for launches and bulk campaigns.
       </span>
     </label>
-  );
-}
-
-const iconButton = "grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-tide-600 hover:text-tide-700 disabled:opacity-40";
-
-function Inspector() {
-  const block = useEditor((state) => state.blocks.find((item) => item.id === state.selectedId) ?? null);
-  const settings = useEditor((state) => state.settings);
-  if (!block) {
-    return (
-      <aside className="min-h-0 space-y-2.5 overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-3 shadow-[0_8px_30px_rgba(15,23,42,0.05)]">
-        <UnsubscribeControl />
-        <div>
-          <h2 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">Email settings</h2>
-          <p className="mt-1 text-[11px] leading-relaxed text-slate-400">Select any block in the preview to edit its content and styling.</p>
-        </div>
-        <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-slate-600">Width (px)</span>
-          <input className={`${compactInput} w-full`} type="number" value={settings.width} onChange={(event) => useEditor.getState().change((draft) => { draft.settings.width = Number(event.target.value); })} />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs font-semibold text-slate-600">Outer background</span>
-          <HexColorPicker className="!w-full" color={settings.outerBg} onChange={(outerBg) => useEditor.getState().change((draft) => { draft.settings.outerBg = outerBg; })} />
-        </label>
-      </aside>
-    );
-  }
-  const move = (direction: -1 | 1) => useEditor.getState().change((draft) => {
-    const index = draft.blocks.findIndex((item) => item.id === block.id);
-    const next = index + direction;
-    if (next < 0 || next >= draft.blocks.length) return;
-    const neighbor = draft.blocks[next];
-    if (!neighbor || blockSection(neighbor) !== blockSection(block)) return;
-    const [item] = draft.blocks.splice(index, 1);
-    if (item) draft.blocks.splice(next, 0, item);
-  });
-  const meta = sectionMeta(blockSection(block));
-  const typeLabels: Record<Block["type"], string> = { text: "Text", image: "Image", button: "Button", divider: "Divider line", spacer: "Empty space" };
-  return (
-    <aside className="min-h-0 overflow-y-auto rounded-2xl border border-slate-200/80 bg-white p-3 shadow-[0_8px_30px_rgba(15,23,42,0.05)]">
-      <UnsubscribeControl />
-      <div className="mt-2.5 rounded-xl bg-slate-50 px-2.5 py-2 ring-1 ring-slate-100">
-        <div className="flex items-center justify-between gap-2">
-          <p className="min-w-0 truncate text-[13px] font-semibold text-ink-950">{meta.title} · {typeLabels[block.type]}</p>
-          <span className="shrink-0 rounded-full bg-tide-700 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Editing</span>
-        </div>
-        <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">{meta.hint}</p>
-      </div>
-      <div className="mt-2 flex items-center gap-1.5">
-        <button type="button" className={iconButton} onClick={() => move(-1)} title="Move up" aria-label="Move block up"><ArrowUp size={14} /></button>
-        <button type="button" className={iconButton} onClick={() => move(1)} title="Move down" aria-label="Move block down"><ArrowDown size={14} /></button>
-        <button type="button" className={iconButton} onClick={() => useEditor.getState().change((draft) => {
-          const index = draft.blocks.findIndex((item) => item.id === block.id);
-          const original = draft.blocks[index];
-          if (!original) return;
-          const copy = JSON.parse(JSON.stringify(original)) as Block;
-          copy.id = uid();
-          draft.blocks.splice(index + 1, 0, copy);
-        })} title="Duplicate block" aria-label="Duplicate block"><Copy size={14} /></button>
-        <button type="button" className={`${iconButton} hover:border-rose-300 hover:text-rose-600`} onClick={() => useEditor.getState().change((draft) => { draft.blocks = draft.blocks.filter((item) => item.id !== block.id); })} title="Delete block" aria-label="Delete block"><Trash2 size={14} /></button>
-        <span className="ml-auto text-[10px] leading-tight text-slate-400">Reorder, copy<br />or remove</span>
-      </div>
-      <div className="mt-3 border-t border-slate-100 pt-3 [&_label>span]:mb-1 [&_label>span]:text-[11px] [&_label>span]:font-semibold [&_label>span]:text-slate-600">
-        <BlockSettings block={block} />
-      </div>
-    </aside>
   );
 }
 
