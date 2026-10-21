@@ -1,9 +1,23 @@
 import mjml2html from "mjml";
 import sanitizeHtml from "sanitize-html";
 import { convert } from "html-to-text";
+import { config } from "../config";
 import { AppError, assertNever } from "../errors";
 import { escapeHtml } from "../lib/crypto";
 import { designSchema, SECTION_ORDER, type Block, type Design } from "./design";
+
+// Uploaded images are stored as host-independent "/media/<file>" paths (older
+// templates may carry an absolute localhost/VM URL). At render time - which is
+// what gets sent - always point them at this server's public MEDIA_URL base.
+export function publicImageSrc(src: string): string {
+  const trimmed = src.trim();
+  const mediaIndex = trimmed.indexOf("/media/");
+  if (mediaIndex !== -1) {
+    const file = trimmed.slice(mediaIndex + "/media/".length).split(/[?#]/)[0];
+    if (file) return `${config.mediaUrl}/${file}`;
+  }
+  return trimmed;
+}
 
 export function sanitizeRichText(html: string): string {
   return sanitizeHtml(html, {
@@ -38,7 +52,7 @@ function blockMjml(block: Block): string {
     case "image": {
       const href = safeHref(block.href);
       const width = block.width === "100%" ? "" : ` width="${attr(block.width)}"`;
-      return `<mj-image src="${attr(block.src)}" alt="${attr(block.alt)}" align="${block.align}"${width}${
+      return `<mj-image src="${attr(publicImageSrc(block.src))}" alt="${attr(block.alt)}" align="${block.align}"${width}${
         href ? ` href="${attr(href)}"` : ""
       } />`;
     }

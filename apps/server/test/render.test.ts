@@ -7,6 +7,8 @@ import { applyLinkMap, extractLinks } from "../src/render/links";
 import { buildMime, encodeMime, needsMime } from "../src/providers/mime";
 import { isTemporarySmtpError } from "../src/providers/smtp";
 import { personalize, personalizeHtml } from "../src/render/personalize";
+import { publicImageSrc } from "../src/render/email";
+import { config } from "../src/config";
 import { emptyDesign } from "../src/render/design";
 import { renderDesign } from "../src/render/email";
 
@@ -34,6 +36,13 @@ test("personalizeHtml escapes contact data but keeps template markup", () => {
   const out = personalizeHtml("<p>Hi {{first_name}}</p>", { first_name: '<img src=x onerror="x">' });
   assert.equal(out, "<p>Hi &lt;img src=x onerror=&quot;x&quot;&gt;</p>");
   assert.equal(personalize("Hi {{first_name}}", { first_name: "<b>Nora</b>" }), "Hi <b>Nora</b>");
+});
+
+test("uploaded images render against the configured public media base", () => {
+  assert.equal(publicImageSrc("/media/abc123.png"), `${config.mediaUrl}/abc123.png`);
+  assert.equal(publicImageSrc("http://127.0.0.1:4000/media/abc123.png"), `${config.mediaUrl}/abc123.png`);
+  assert.equal(publicImageSrc("http://172.16.200.30:4000/media/abc123.png?x=1"), `${config.mediaUrl}/abc123.png`);
+  assert.equal(publicImageSrc("https://placehold.co/600x200/png"), "https://placehold.co/600x200/png");
 });
 
 test("link rewrite replaces longer urls first", () => {

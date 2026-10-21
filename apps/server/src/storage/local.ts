@@ -44,5 +44,8 @@ export async function saveImage(buffer: Buffer): Promise<{ fileName: string; url
   const fileName = `${randomToken()}.${detected.ext}`;
   await fs.promises.mkdir(config.uploadDir, { recursive: true });
   await fs.promises.writeFile(path.join(config.uploadDir, fileName), output);
-  return { fileName, url: `${config.mediaUrl}/${fileName}`, sizeBytes: output.length };
+  // Store a host-independent path. The file lives permanently in the server's
+  // upload dir; the absolute public URL is only built at email render time
+  // from MEDIA_URL, so templates keep working whatever host/IP opens the app.
+  return { fileName, url: `/media/${fileName}`, sizeBytes: output.length };
 }

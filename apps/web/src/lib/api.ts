@@ -137,6 +137,7 @@ export const api = {
     body.set("file", file);
     return request<{ asset: { url: string } }>("/api/assets", { method: "POST", body });
   },
+  assets: () => request<{ assets: Asset[] }>("/api/assets"),
   senders: () => request<{ senders: Sender[] }>("/api/senders"),
   createSender: (body: unknown) => request("/api/senders", { method: "POST", body: JSON.stringify(body) }),
   updateSender: (id: number, body: unknown) => request(`/api/senders/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
@@ -204,6 +205,16 @@ export type Segment = { id: number; name: string; rules: { op: "and" | "or"; con
 export type Suppression = { email: string; reason: string; createdAt: string };
 
 export type Template = { id: number; name: string; category?: string; kind: string; visibility: string; designJson: Design; updatedAt: string };
+
+export type Asset = { id: number; fileName: string; url: string; sizeBytes: number; createdAt: string };
+
+// Uploaded images are stored host-independently as "/media/<file>". Older
+// assets may carry an absolute URL from another host - reduce both to the path
+// so the image displays wherever the app is opened.
+export function mediaPath(url: string): string {
+  const index = url.indexOf("/media/");
+  return index === -1 ? url : url.slice(index);
+}
 
 export type Sender = {
   id: number;

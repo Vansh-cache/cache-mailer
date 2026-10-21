@@ -15,7 +15,7 @@ import toast from "react-hot-toast";
 import { useNavigate, useParams } from "react-router-dom";
 import { HexColorPicker } from "react-colorful";
 import { Button, inputClass } from "../components/ui";
-import { api, type Block, type Section } from "../lib/api";
+import { api, mediaPath, type Block, type Section } from "../lib/api";
 import { uid } from "../lib/uid";
 import { addBlock, blockSection, designFromStore, useEditor } from "../store/editor";
 
@@ -331,7 +331,7 @@ function BlockView({ block }: { block: Block }) {
     case "text":
       return <div className="prose prose-sm max-w-none px-6 py-2" style={{ fontSize: block.style.fontSize, textAlign: block.style.align }} dangerouslySetInnerHTML={{ __html: block.html }} />;
     case "image":
-      return <img src={block.src} alt={block.alt} className="mx-auto max-w-full" style={{ width: block.width === "100%" ? "100%" : block.width }} />;
+      return <img src={mediaPath(block.src)} alt={block.alt} className="mx-auto max-w-full" style={{ width: block.width === "100%" ? "100%" : block.width }} />;
     case "button":
       return <div style={{ textAlign: block.style.align }} className="px-6 py-3"><span className="inline-block px-4 py-2" style={{ background: block.style.bg, color: block.style.color, borderRadius: block.style.radius }}>{block.label}</span></div>;
     case "divider":
@@ -429,7 +429,37 @@ function Inspector() {
   );
 }
 
+function SavedImages({ currentSrc, onPick }: { currentSrc: string; onPick: (url: string) => void }) {
+  const assets = useQuery({ queryKey: ["assets"], queryFn: api.assets });
+  const saved = assets.data?.assets ?? [];
+  if (assets.isLoading) return <p className="text-[11px] text-slate-400">Loading saved images...</p>;
+  if (saved.length === 0) return <p className="text-[11px] leading-snug text-slate-400">No saved images yet. Upload one above - it is stored on the server and will appear here for reuse in any template.</p>;
+  return (
+    <div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {saved.map((asset) => {
+          const path = mediaPath(asset.url);
+          const selected = mediaPath(currentSrc) === path;
+          return (
+            <button
+              key={asset.id}
+              type="button"
+              onClick={() => onPick(path)}
+              title={asset.fileName}
+              className={`h-12 overflow-hidden rounded-lg border bg-slate-50 transition ${selected ? "border-tide-600 ring-2 ring-tide-600/30" : "border-slate-200 hover:border-tide-600"}`}
+            >
+              <img src={path} alt={asset.fileName} className="h-full w-full object-cover" loading="lazy" />
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-1 text-[11px] leading-snug text-slate-400">Saved on the server - click any image to use it. No need to upload again.</p>
+    </div>
+  );
+}
+
 function BlockSettings({ block }: { block: Block }) {
+  const queryClient = useQueryClient();
   const patch = (recipe: (current: Block) => void) => useEditor.getState().change((draft) => {
     const current = draft.blocks.find((item) => item.id === block.id);
     if (current) recipe(current);
@@ -459,17 +489,27 @@ function BlockSettings({ block }: { block: Block }) {
     case "image":
       return (
         <div className="space-y-2.5">
-          <img src={block.src} alt={block.alt} className="max-h-28 w-full rounded border border-slate-200 object-contain" />
+          <img src={mediaPath(block.src)} alt={block.alt} className="max-h-28 w-full rounded border border-slate-200 object-contain" />
           <label className="block">
-            <span className="mb-1 block font-medium">Replace image from your computer</span>
+            <span className="mb-1 block font-medium">Upload image (saved on the server)</span>
             <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={async (event) => {
               const file = event.target.files?.[0];
               if (!file) return;
-              const uploaded = await api.upload(file);
-              patch((current) => { if (current.type === "image") current.src = uploaded.asset.url; });
+              try {
+                const uploaded = await api.upload(file);
+                patch((current) => { if (current.type === "image") current.src = uploaded.asset.url; });
+                await queryClient.invalidateQueries({ queryKey: ["assets"] });
+                toast.success("Image saved on the server");
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : "Upload failed");
+              }
             }} />
-            <span className="mt-1 block text-xs text-slate-500">JPG, PNG, GIF or WebP. The image must be reachable by receivers - see the note below.</span>
+            <span className="mt-1 block text-xs text-slate-500">JPG, PNG, GIF or WebP. Stored permanently on the server, so it stays in the template wherever the app runs.</span>
           </label>
+          <div className="block">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600">Saved images</span>
+            <SavedImages currentSrc={block.src} onPick={(url) => patch((current) => { if (current.type === "image") current.src = url; })} />
+          </div>
           <label className="block">
             <span className="mb-1 block font-medium">...or image web address (URL)</span>
             <input className={inputClass} value={block.src} onChange={(event) => patch((current) => { if (current.type === "image") current.src = event.target.value; })} placeholder="https://..." />

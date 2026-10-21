@@ -128,6 +128,11 @@ async function pullModule(module: "contacts" | "leads", token: string): Promise<
 }
 
 export async function runZohoSync(): Promise<{ ok: boolean; error?: string }> {
+  // Zoho is optional. Until it is configured AND connected, sync is disabled:
+  // return quietly without recording an error or emailing the admins.
+  if (!zohoConfigured()) return { ok: false, error: "Zoho is not configured" };
+  const connected = await prisma.integrationSecret.findUnique({ where: { name: SECRET } });
+  if (!connected) return { ok: false, error: "Zoho is not connected" };
   const lock = await getSetting(LOCK);
   if (lock && Date.now() - new Date(lock).getTime() < 10 * 60 * 1000) {
     return { ok: false, error: "Sync already running" };
@@ -141,6 +146,7 @@ export async function runZohoSync(): Promise<{ ok: boolean; error?: string }> {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Zoho sync failed";
     logger.error({ err: error }, "zoho sync failed");
+    let shouldNotify = false;
     for (const module of ["contacts", "leads"] as const) {
       const previous = await prisma.zohoSyncState.findUnique({ where: { module } });
       await prisma.zohoSyncState.upsert({
@@ -148,8 +154,9 @@ export async function runZohoSync(): Promise<{ ok: boolean; error?: string }> {
         update: { lastRunAt: new Date(), lastStatus: "error", lastError: message },
         create: { module, lastRunAt: new Date(), lastStatus: "error", lastError: message },
       });
-      if (previous?.lastStatus === "error") await notifyAdmins("Zoho sync failed", message);
+      if (previous?.lastStatus === "error") shouldNotify = true;
     }
+    if (shouldNotify) await notifyAdmins("Zoho sync failed", message);
     return { ok: false, error: message };
   } finally {
     await putSetting(LOCK, "");
