@@ -10,7 +10,7 @@ import { EditorContent, useEditor as useTipTap } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowLeft, ArrowUp, Check, Copy, Eye, GripVertical, Image as ImageIcon, LayoutTemplate, Minus, MousePointerClick, MoveVertical, Pencil, Plus, Redo2, Send, SlidersHorizontal, Sparkles, Trash2, Type, Undo2, type LucideIcon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import toast from "react-hot-toast";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button, inputClass } from "../components/ui";
@@ -488,14 +488,23 @@ function SortableBlock({ block, editable }: { block: Block; editable: boolean })
           Editing - {sectionMeta(blockSection(block)).title} · {BLOCK_CARD_META[block.type].label}
         </span>
       )}
-      <BlockView block={block} />
+      <BlockView block={block} editing={isSelected} />
     </div>
   );
 }
 
-function BlockView({ block }: { block: Block }) {
+function BlockView({ block, editing = false }: { block: Block; editing?: boolean }) {
+  const saveField = (field: "overlayHeading" | "overlayText" | "label", next: string) => {
+    useEditor.getState().change((draft) => {
+      const current = draft.blocks.find((item) => item.id === block.id);
+      if (!current) return;
+      if (current.type === "image" && (field === "overlayHeading" || field === "overlayText")) current[field] = next;
+      if (current.type === "button" && field === "label" && next) current.label = next;
+    });
+  };
   switch (block.type) {
     case "text":
+      if (editing) return <CanvasRichText block={block} />;
       return <div className="prose prose-sm max-w-none" style={{ fontSize: block.style.fontSize, textAlign: block.style.align, padding: block.style.padding, background: block.style.bg === "transparent" ? undefined : block.style.bg }} dangerouslySetInnerHTML={{ __html: block.html }} />;
     case "image": {
       const heading = block.overlayHeading?.trim();
@@ -505,16 +514,45 @@ function BlockView({ block }: { block: Block }) {
           <div className="relative overflow-hidden" style={{ background: block.overlayBg || "#0f766e", textAlign: block.align }}>
             <img src={mediaPath(block.src)} alt={block.alt} className="absolute inset-0 h-full w-full object-cover" />
             <div className="relative px-6 py-9" style={{ color: block.overlayColor || "#ffffff" }}>
-              {heading && <p className="text-[26px] font-bold leading-8">{heading}</p>}
-              {overlayText && <p className="mt-1.5 text-base leading-6">{overlayText}</p>}
+              {editing ? (
+                <>
+                  <p className="text-[26px] font-bold leading-8">
+                    <InlineEdit value={heading ?? ""} placeholder="Banner heading - click to write" onSave={(next) => saveField("overlayHeading", next)} />
+                  </p>
+                  <p className="mt-1.5 text-base leading-6">
+                    <InlineEdit value={overlayText ?? ""} placeholder="Banner line - click to write" onSave={(next) => saveField("overlayText", next)} />
+                  </p>
+                  <p className="mt-2 text-[10px] uppercase tracking-wide opacity-70">Click the words above to edit them here</p>
+                </>
+              ) : (
+                <>
+                  {heading && <p className="text-[26px] font-bold leading-8">{heading}</p>}
+                  {overlayText && <p className="mt-1.5 text-base leading-6">{overlayText}</p>}
+                </>
+              )}
             </div>
           </div>
         );
       }
-      return <img src={mediaPath(block.src)} alt={block.alt} className="mx-auto max-w-full" style={{ width: block.width === "100%" ? "100%" : block.width }} />;
+      return (
+        <span className="relative block">
+          <img src={mediaPath(block.src)} alt={block.alt} className="mx-auto max-w-full" style={{ width: block.width === "100%" ? "100%" : block.width }} />
+          {editing && (
+            <span className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink-950/75 px-2.5 py-1 text-[10px] font-medium text-white shadow">
+              Want words on this image? Add Banner heading in the card on the left
+            </span>
+          )}
+        </span>
+      );
     }
     case "button":
-      return <div style={{ textAlign: block.style.align }} className="px-6 py-3"><span className="inline-block px-4 py-2" style={{ background: block.style.bg, color: block.style.color, borderRadius: block.style.radius }}>{block.label}</span></div>;
+      return (
+        <div style={{ textAlign: block.style.align }} className="px-6 py-3">
+          <span className="inline-block px-4 py-2" style={{ background: block.style.bg, color: block.style.color, borderRadius: block.style.radius }}>
+            {editing ? <InlineEdit value={block.label} placeholder="Button text" onSave={(next) => saveField("label", next)} /> : block.label}
+          </span>
+        </div>
+      );
     case "divider":
       return <hr style={{ borderColor: block.style.color, borderTopWidth: block.style.height }} />;
     case "spacer":
@@ -806,7 +844,11 @@ function BlockSettings({ block }: { block: Block }) {
   }
 }
 
-function TextTools({ blockId, html }: { blockId: string; html: string }) {
+// One rich-text editor instance per place a text block is shown (panel card
+// and the preview itself). Instances stay in sync: whichever one is not
+// focused adopts external changes, so typing in the preview updates the
+// panel and vice versa.
+function useRichText(blockId: string, html: string) {
   const editor = useTipTap({
     extensions: [StarterKit, Underline, Link.configure({ openOnClick: false }), TextStyle, Color, TextAlign.configure({ types: ["paragraph"] })],
     content: html,
@@ -817,6 +859,54 @@ function TextTools({ blockId, html }: { blockId: string; html: string }) {
       });
     },
   });
+  useEffect(() => {
+    if (!editor || editor.isFocused) return;
+    if (editor.getHTML() !== html) editor.commands.setContent(html, false);
+  }, [editor, html]);
+  return editor;
+}
+
+function CanvasRichText({ block }: { block: Extract<Block, { type: "text" }> }) {
+  const editor = useRichText(block.id, block.html);
+  if (!editor) return null;
+  return (
+    <div
+      className="prose prose-sm max-w-none [&_.ProseMirror]:outline-none"
+      style={{ fontSize: block.style.fontSize, textAlign: block.style.align, padding: block.style.padding, background: block.style.bg === "transparent" ? undefined : block.style.bg }}
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <EditorContent editor={editor} />
+    </div>
+  );
+}
+
+function InlineEdit({ value, onSave, className, style, placeholder }: { value: string; onSave: (next: string) => void; className?: string; style?: CSSProperties; placeholder: string }) {
+  return (
+    <span
+      key={value}
+      contentEditable
+      suppressContentEditableWarning
+      role="textbox"
+      aria-label={placeholder}
+      data-placeholder={placeholder}
+      className={`cursor-text rounded-sm outline-none transition focus:bg-white/20 focus:ring-2 focus:ring-white/70 empty:before:text-white/60 empty:before:content-[attr(data-placeholder)] ${className ?? ""}`}
+      style={style}
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.preventDefault();
+        event.stopPropagation();
+      }}
+      onBlur={(event) => onSave(event.currentTarget.innerText.trim())}
+    >
+      {value}
+    </span>
+  );
+}
+
+function TextTools({ blockId, html }: { blockId: string; html: string }) {
+  const editor = useRichText(blockId, html);
   if (!editor) return null;
   const formatButton = "grid h-7 w-7 place-items-center rounded-md border border-slate-200 bg-white text-[12px] font-bold text-slate-600 shadow-sm transition hover:border-tide-600 hover:text-tide-700";
   return (
