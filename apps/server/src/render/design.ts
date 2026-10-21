@@ -41,6 +41,10 @@ export const designSchema = z.object({
         width: z.string().min(1),
         align: z.enum(["left", "center", "right"]),
         href: z.string().optional(),
+        overlayHeading: z.string().max(200).optional(),
+        overlayText: z.string().max(500).optional(),
+        overlayColor: z.string().max(40).optional(),
+        overlayBg: z.string().max(40).optional(),
       }),
       z.object({
         id: z.string().min(1),

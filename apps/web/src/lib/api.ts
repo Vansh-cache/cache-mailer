@@ -31,7 +31,7 @@ export type Section = "header" | "body" | "footer";
 
 export type Block =
   | { id: string; section?: Section; type: "text"; html: string; style: { fontSize: number; align: "left" | "center" | "right"; padding: string; bg: string } }
-  | { id: string; section?: Section; type: "image"; src: string; alt: string; width: string; align: "left" | "center" | "right"; href?: string }
+  | { id: string; section?: Section; type: "image"; src: string; alt: string; width: string; align: "left" | "center" | "right"; href?: string; overlayHeading?: string; overlayText?: string; overlayColor?: string; overlayBg?: string }
   | { id: string; section?: Section; type: "button"; label: string; href: string; style: { bg: string; color: string; fontSize: number; radius: number; align: "left" | "center" | "right" } }
   | { id: string; section?: Section; type: "divider"; style: { color: string; height: number } }
   | { id: string; section?: Section; type: "spacer"; height: number };

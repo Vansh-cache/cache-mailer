@@ -43,7 +43,7 @@ function attr(value: string): string {
   return escapeHtml(value);
 }
 
-function blockMjml(block: Block): string {
+function blockMjml(block: Block, sectionBg = "#ffffff"): string {
   switch (block.type) {
     case "text":
       return `<mj-text align="${block.style.align}" font-size="${block.style.fontSize}px" padding="${attr(block.style.padding)}"${
@@ -51,6 +51,22 @@ function blockMjml(block: Block): string {
       }>${sanitizeRichText(block.html)}</mj-text>`;
     case "image": {
       const href = safeHref(block.href);
+      const heading = block.overlayHeading?.trim();
+      const overlayText = block.overlayText?.trim();
+      if (heading || overlayText) {
+        // Banner mode: the image becomes the background of its own full-width
+        // section with the text on top. Clients that cannot show background
+        // images (Outlook desktop) fall back to the solid colour instead.
+        const color = attr(block.overlayColor?.trim() || "#ffffff");
+        const bg = attr(block.overlayBg?.trim() || "#0f766e");
+        return `</mj-column></mj-section><mj-section background-url="${attr(publicImageSrc(block.src))}" background-size="cover" background-repeat="no-repeat" background-color="${bg}" padding="36px 24px">
+      <mj-column>
+        ${heading ? `<mj-text align="${block.align}" color="${color}" font-size="26px" line-height="32px" padding="0"><strong>${escapeHtml(heading)}</strong></mj-text>` : ""}
+        ${overlayText ? `<mj-text align="${block.align}" color="${color}" font-size="16px" line-height="24px" padding="6px 0 0">${escapeHtml(overlayText)}</mj-text>` : ""}
+      </mj-column>
+    </mj-section><mj-section background-color="${attr(sectionBg)}" padding="0">
+      <mj-column>`;
+      }
       const width = block.width === "100%" ? "" : ` width="${attr(block.width)}"`;
       return `<mj-image src="${attr(publicImageSrc(block.src))}" alt="${attr(block.alt)}" align="${block.align}"${width}${
         href ? ` href="${attr(href)}"` : ""
@@ -94,12 +110,12 @@ export async function renderDesign(
   <mj-body width="${design.settings.width}px" background-color="${attr(design.settings.outerBg)}">
     <mj-section background-color="${attr(design.settings.contentBg)}" padding="0">
       <mj-column>
-        ${mainBlocks.map(blockMjml).join("\n")}
+        ${mainBlocks.map((block) => blockMjml(block, design.settings.contentBg)).join("\n")}
       </mj-column>
     </mj-section>${footerBlocks.length > 0 ? `
     <mj-section background-color="#f3f4f6" padding="0">
       <mj-column>
-        ${footerBlocks.map(blockMjml).join("\n")}
+        ${footerBlocks.map((block) => blockMjml(block, "#f3f4f6")).join("\n")}
       </mj-column>
     </mj-section>` : ""}
     <mj-section padding="8px 16px 24px">

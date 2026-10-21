@@ -464,9 +464,23 @@ function SortableBlock({ block, editable }: { block: Block; editable: boolean })
 function BlockView({ block }: { block: Block }) {
   switch (block.type) {
     case "text":
-      return <div className="prose prose-sm max-w-none px-6 py-2" style={{ fontSize: block.style.fontSize, textAlign: block.style.align }} dangerouslySetInnerHTML={{ __html: block.html }} />;
-    case "image":
+      return <div className="prose prose-sm max-w-none" style={{ fontSize: block.style.fontSize, textAlign: block.style.align, padding: block.style.padding, background: block.style.bg === "transparent" ? undefined : block.style.bg }} dangerouslySetInnerHTML={{ __html: block.html }} />;
+    case "image": {
+      const heading = block.overlayHeading?.trim();
+      const overlayText = block.overlayText?.trim();
+      if (heading || overlayText) {
+        return (
+          <div className="relative overflow-hidden" style={{ background: block.overlayBg || "#0f766e", textAlign: block.align }}>
+            <img src={mediaPath(block.src)} alt={block.alt} className="absolute inset-0 h-full w-full object-cover" />
+            <div className="relative px-6 py-9" style={{ color: block.overlayColor || "#ffffff" }}>
+              {heading && <p className="text-[26px] font-bold leading-8">{heading}</p>}
+              {overlayText && <p className="mt-1.5 text-base leading-6">{overlayText}</p>}
+            </div>
+          </div>
+        );
+      }
       return <img src={mediaPath(block.src)} alt={block.alt} className="mx-auto max-w-full" style={{ width: block.width === "100%" ? "100%" : block.width }} />;
+    }
     case "button":
       return <div style={{ textAlign: block.style.align }} className="px-6 py-3"><span className="inline-block px-4 py-2" style={{ background: block.style.bg, color: block.style.color, borderRadius: block.style.radius }}>{block.label}</span></div>;
     case "divider":
@@ -544,17 +558,47 @@ function BlockSettings({ block }: { block: Block }) {
     </label>
   );
   switch (block.type) {
-    case "text":
+    case "text": {
+      const hasBg = block.style.bg !== "transparent";
       return (
         <div className="space-y-2.5">
           <TextTools blockId={block.id} html={block.html} />
-          <label className="block">
-            <span className="mb-1 block font-medium">Text size (px)</span>
-            <input className={inputClass} type="number" min={10} max={40} value={block.style.fontSize} onChange={(event) => patch((current) => { if (current.type === "text") current.style.fontSize = Number(event.target.value); })} />
-          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="mb-1 block font-medium">Text size (px)</span>
+              <input className={inputClass} type="number" min={10} max={40} value={block.style.fontSize} onChange={(event) => patch((current) => { if (current.type === "text") current.style.fontSize = Number(event.target.value); })} />
+            </label>
+            <label className="block">
+              <span className="mb-1 block font-medium">Padding</span>
+              <select className={inputClass} value={block.style.padding} onChange={(event) => patch((current) => { if (current.type === "text") current.style.padding = event.target.value; })}>
+                <option value="8px 20px">Compact</option>
+                <option value="12px 28px">Normal</option>
+                <option value="24px 32px">Large</option>
+                <option value="36px 40px">Banner</option>
+              </select>
+            </label>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-2.5 py-2">
+            <label className="flex cursor-pointer items-center gap-2 text-[12px] font-medium text-ink-900">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-teal-700"
+                checked={hasBg}
+                onChange={(event) => patch((current) => { if (current.type === "text") current.style.bg = event.target.checked ? "#0f766e" : "transparent"; })}
+              />
+              Background colour behind this text
+            </label>
+            {hasBg && (
+              <span className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 shadow-sm">
+                <input type="color" value={block.style.bg} onChange={(event) => patch((current) => { if (current.type === "text") current.style.bg = event.target.value; })} className="h-6 w-10 shrink-0 cursor-pointer rounded border border-slate-200 bg-transparent p-0" />
+                <span className="text-[11px] text-slate-500">{block.style.bg} - pick green, blue, any colour. Make the text colour light from the toolbar above.</span>
+              </span>
+            )}
+          </div>
           {alignSelect(block.style.align, (next) => patch((current) => { if (current.type === "text") current.style.align = next; }))}
         </div>
       );
+    }
     case "image":
       return (
         <div className="space-y-2.5">
@@ -592,16 +636,92 @@ function BlockSettings({ block }: { block: Block }) {
             <span className="mb-1 block font-medium">When clicked, open this link (optional)</span>
             <input className={inputClass} placeholder="https://..." value={block.href ?? ""} onChange={(event) => patch((current) => { if (current.type === "image") current.href = event.target.value; })} />
           </label>
-          <label className="block">
-            <span className="mb-1 block font-medium">Image width</span>
-            <select className={inputClass} value={block.width} onChange={(event) => patch((current) => { if (current.type === "image") current.width = event.target.value; })}>
-              <option value="100%">Full width</option>
-              <option value="400px">Large (400px)</option>
-              <option value="300px">Medium (300px)</option>
-              <option value="200px">Small (200px)</option>
-              <option value="120px">Logo size (120px)</option>
-            </select>
-          </label>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-2.5 py-2">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600">Image size</span>
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-0.5">
+              <button
+                type="button"
+                className={`rounded-md px-2 py-1 text-[11px] font-medium transition ${block.width === "100%" ? "bg-tide-700 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}
+                onClick={() => patch((current) => { if (current.type === "image") current.width = "100%"; })}
+              >
+                Fit tab width
+              </button>
+              <button
+                type="button"
+                className={`rounded-md px-2 py-1 text-[11px] font-medium transition ${block.width !== "100%" ? "bg-tide-700 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}
+                onClick={() => patch((current) => { if (current.type === "image" && current.width === "100%") current.width = "400px"; })}
+              >
+                Custom pixels
+              </button>
+            </div>
+            {block.width === "100%" ? (
+              <p className="mt-1.5 text-[11px] leading-snug text-slate-500">The image stretches to the full width of the email tab - it always fits, on mobile too.</p>
+            ) : (
+              <div className="mt-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={40}
+                    max={600}
+                    step={5}
+                    value={parseInt(block.width, 10) || 400}
+                    onChange={(event) => patch((current) => { if (current.type === "image") current.width = `${event.target.value}px`; })}
+                    className="min-w-0 flex-1 accent-teal-700"
+                    aria-label="Image width in pixels"
+                  />
+                  <span className="flex shrink-0 items-center gap-1">
+                    <input
+                      type="number"
+                      min={40}
+                      max={600}
+                      value={parseInt(block.width, 10) || 400}
+                      onChange={(event) => patch((current) => { if (current.type === "image") current.width = `${Math.min(600, Math.max(40, Number(event.target.value) || 40))}px`; })}
+                      className="h-8 w-16 rounded-lg border border-slate-300 bg-white px-2 text-[12px]"
+                      aria-label="Image width value in pixels"
+                    />
+                    <span className="text-[11px] text-slate-500">px</span>
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {[600, 400, 300, 200, 120].map((px) => (
+                    <button key={px} type="button" className={`rounded-md border px-1.5 py-0.5 text-[10px] transition ${block.width === `${px}px` ? "border-tide-600 bg-tide-50 font-semibold text-tide-700" : "border-slate-200 bg-white text-slate-500 hover:border-tide-600"}`} onClick={() => patch((current) => { if (current.type === "image") current.width = `${px}px`; })}>
+                      {px}px
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[11px] leading-snug text-slate-500">Height adjusts automatically so the picture never looks stretched.</p>
+              </div>
+            )}
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-2.5 py-2">
+            <span className="mb-1 block text-[11px] font-semibold text-slate-600">Text on this image (banner)</span>
+            <p className="mb-2 text-[11px] leading-snug text-slate-500">Write a heading and line - they will sit on top of the image, like a banner. Leave empty for a plain image.</p>
+            <label className="mb-2 block">
+              <span className="mb-1 block font-medium">Banner heading</span>
+              <input className={inputClass} placeholder="e.g. New Product Launch" value={block.overlayHeading ?? ""} onChange={(event) => patch((current) => { if (current.type === "image") current.overlayHeading = event.target.value; })} />
+            </label>
+            <label className="mb-2 block">
+              <span className="mb-1 block font-medium">Banner line</span>
+              <input className={inputClass} placeholder="e.g. See what is new this season" value={block.overlayText ?? ""} onChange={(event) => patch((current) => { if (current.type === "image") current.overlayText = event.target.value; })} />
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="mb-1 block font-medium">Text colour</span>
+                <span className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 shadow-sm">
+                  <input type="color" value={block.overlayColor ?? "#ffffff"} onChange={(event) => patch((current) => { if (current.type === "image") current.overlayColor = event.target.value; })} className="h-6 w-8 shrink-0 cursor-pointer rounded border border-slate-200 bg-transparent p-0" />
+                  <span className="truncate text-[11px] text-slate-500">{block.overlayColor ?? "#ffffff"}</span>
+                </span>
+              </label>
+              <label className="block">
+                <span className="mb-1 block font-medium">Fallback colour</span>
+                <span className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 shadow-sm">
+                  <input type="color" value={block.overlayBg ?? "#0f766e"} onChange={(event) => patch((current) => { if (current.type === "image") current.overlayBg = event.target.value; })} className="h-6 w-8 shrink-0 cursor-pointer rounded border border-slate-200 bg-transparent p-0" />
+                  <span className="truncate text-[11px] text-slate-500">{block.overlayBg ?? "#0f766e"}</span>
+                </span>
+              </label>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-snug text-slate-400">Fallback colour shows behind the text in mail apps that cannot display background images (like old Outlook).</p>
+          </div>
           {alignSelect(block.align, (next) => patch((current) => { if (current.type === "image") current.align = next; }))}
         </div>
       );

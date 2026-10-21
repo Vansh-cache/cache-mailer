@@ -77,6 +77,37 @@ test("uploaded images embed as CID attachments and MIME carries them inline", as
   }
 });
 
+test("banner image renders heading over the image with a colour fallback, and text blocks carry their background", async () => {
+  const footer = { company: "Cachedigitech", address: "New Delhi" };
+  const banner = await renderDesign(
+    {
+      version: 1,
+      settings: { outerBg: "#f3f4f6", contentBg: "#ffffff", width: 600, fontFamily: "Arial", baseFontSize: 16, textColor: "#1f2937", linkColor: "#0f766e" },
+      blocks: [
+        { id: "b1", section: "header", type: "image", src: "/media/banner.png", alt: "Banner", width: "100%", align: "center", overlayHeading: "Big Launch", overlayText: "Hello there", overlayColor: "#ffffff", overlayBg: "#14532d" },
+      ],
+    },
+    footer,
+  );
+  assert.ok(banner.html.includes(`${config.mediaUrl}/banner.png`));
+  assert.ok(banner.html.includes("Big Launch"));
+  assert.ok(banner.html.includes("#14532d"));
+
+  const colored = await renderDesign(
+    {
+      version: 1,
+      settings: { outerBg: "#f3f4f6", contentBg: "#ffffff", width: 600, fontFamily: "Arial", baseFontSize: 16, textColor: "#1f2937", linkColor: "#0f766e" },
+      blocks: [
+        { id: "t1", section: "body", type: "text", html: "<p>On green</p>", style: { fontSize: 16, align: "center", padding: "24px 32px", bg: "#14532d" } },
+        { id: "i1", section: "body", type: "image", src: "https://example.com/a.png", alt: "a", width: "250px", align: "center" },
+      ],
+    },
+    footer,
+  );
+  assert.ok(colored.html.includes("#14532d"));
+  assert.ok(colored.html.includes("250"));
+});
+
 test("link rewrite replaces longer urls first", () => {
   const html = '<a href="https://a.example/b">x</a><a href="https://a.example">y</a>';
   const map = new Map([
