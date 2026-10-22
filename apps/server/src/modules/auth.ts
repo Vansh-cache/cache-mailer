@@ -28,6 +28,7 @@ function publicUser(user: {
   teamId: number | null;
   isActive?: boolean;
   team?: { name: string } | null;
+  senders?: Array<{ sender: { id: bigint; fromEmail: string; fromName: string; teamId: number } }>;
 }) {
   return {
     id: user.id,
@@ -37,6 +38,12 @@ function publicUser(user: {
     teamId: user.teamId,
     isActive: user.isActive ?? true,
     teamName: user.team?.name ?? null,
+    mailboxes: (user.senders ?? []).map((row) => ({
+      id: Number(row.sender.id),
+      fromEmail: row.sender.fromEmail,
+      fromName: row.sender.fromName,
+      teamId: row.sender.teamId,
+    })),
   };
 }
 
@@ -93,12 +100,18 @@ authRouter.get(
   }),
 );
 
+const userInclude = {
+  team: true,
+  senders: { include: { sender: true }, orderBy: { sender: { fromEmail: "asc" as const } } },
+} as const;
+
 export async function createUser(input: {
   name: string;
   email: string;
   password: string;
   role: "admin" | "marketing" | "sales";
   teamId: number | null;
+  senderIds?: number[];
 }) {
   if (input.role !== "admin" && input.teamId == null) throw new AppError(400, "Choose a team");
   const existing = await prisma.user.findUnique({ where: { email: input.email.toLowerCase() } });
@@ -107,6 +120,14 @@ export async function createUser(input: {
     const team = await prisma.team.findUnique({ where: { id: input.teamId } });
     if (!team) throw new AppError(400, "Unknown team");
   }
+  const senderIds = [...new Set(input.senderIds ?? [])].map((id) => BigInt(id));
+  if (senderIds.length > 0) {
+    const senders = await prisma.senderAccount.findMany({ where: { id: { in: senderIds } } });
+    if (senders.length !== senderIds.length) throw new AppError(400, "One or more mailboxes were not found");
+    if (input.role !== "admin" && input.teamId != null && senders.some((sender) => sender.teamId !== input.teamId)) {
+      throw new AppError(400, "Assigned mailboxes must belong to the user's team");
+    }
+  }
   const passwordHash = await hashPassword(input.password);
   return prisma.user.create({
     data: {
@@ -114,10 +135,11 @@ export async function createUser(input: {
       email: input.email.toLowerCase(),
       passwordHash,
       role: input.role,
-      teamId: input.role === "admin" ? input.teamId : input.teamId,
+      teamId: input.teamId,
+      senders: senderIds.length > 0 ? { create: senderIds.map((senderId) => ({ senderId })) } : undefined,
     },
-    include: { team: true },
+    include: userInclude,
   });
 }
 
-export { publicUser };
+export { publicUser, userInclude };

@@ -4,6 +4,7 @@ import { prisma } from "../db";
 import { assertNever } from "../errors";
 import { backoffMs, randomDelay, sleep } from "../lib/backoff";
 import { sha1 } from "../lib/crypto";
+import { parseCcEmails } from "../lib/email";
 import { logger } from "../lib/logger";
 import { notifyAdmins } from "../lib/notify";
 import { sentItemContainsToken } from "../providers/graph";
@@ -119,11 +120,18 @@ export async function sendRecipient(id: bigint): Promise<void> {
   // Embed server-saved images inside the message so they show for every
   // receiver, even when the public media URL is unreachable from their network.
   const embedded = row.campaign.sendFormat === "plain" ? { html, attachments: [] } : await embedUploadedImages(html);
+  let cc: string[] = [];
+  try {
+    cc = parseCcEmails(row.campaign.ccEmails).filter((email) => email !== row.contact.email);
+  } catch (error) {
+    logger.warn({ err: error, campaignId: row.campaignId }, "campaign CC list ignored");
+  }
   const result = await sendMail(row.sender.provider, {
     fromEmail: row.sender.fromEmail,
     fromName: row.sender.fromName,
     replyTo: row.sender.replyTo,
     to: row.contact.email,
+    cc: cc.length > 0 ? cc : undefined,
     subject,
     html: embedded.html,
     attachments: embedded.attachments,

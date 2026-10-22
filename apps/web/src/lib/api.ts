@@ -8,6 +8,7 @@ export type User = {
   teamId: number | null;
   isActive?: boolean;
   teamName: string | null;
+  mailboxes?: { id: number; fromEmail: string; fromName: string; teamId: number }[];
 };
 
 export type Design = {
@@ -226,6 +227,7 @@ export type Sender = {
   dailyLimit: number;
   perMinuteLimit: number;
   lastError: string | null;
+  teamId: number;
   team: { name: string };
 };
 
@@ -234,6 +236,7 @@ export type Campaign = {
   name: string;
   subject: string;
   status: string;
+  ccEmails?: string | null;
   team?: { name: string };
   stats?: { sent: number; uniqueOpens: number; uniqueClicks: number; unsubscribes: number; replies: number } | null;
 };
@@ -263,8 +266,13 @@ export type Overview = {
   scope: { role: Role; teamName: string | null };
   contacts: { total: number; active: number };
   sent: number;
+  sentBreakdown: { campaign: number; test: number };
   rates: { open: number; click: number; bounce: number };
+  delivery: { successful: number; bounced: number };
+  sentBySource: { name: string; count: number }[];
   sentByCategory: { name: string; count: number }[];
+  sentByMonth: { month: string; campaign: number; test: number; count: number }[];
+  contactsByTag: { name: string; count: number; predefined: boolean }[];
   campaigns: { id: number; name: string; status: string; team: string; stats: { sent: number } | null }[];
   mailboxes: { id: number; fromEmail: string; status: string; team: string; sentToday: number; dailyLimit: number }[];
   queue: { queued: number; processing: number };

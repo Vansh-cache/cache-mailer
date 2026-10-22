@@ -8,7 +8,7 @@ import { send } from "../http";
 import { isValidEmail, normalizeEmail } from "../lib/email";
 import { companyFooter } from "../lib/settings";
 import { resolveAudience } from "../campaigns/audience";
-import { assertTeam, teamFilter } from "../lib/team";
+import { assertSenderAccess, assertTeam, teamFilter } from "../lib/team";
 import { wrap } from "../middleware/error";
 import { sendMail } from "../providers/mail";
 import { designSchema } from "../render/design";
@@ -164,7 +164,7 @@ templatesRouter.post(
     if (!template || !visible(req.user!.teamId, req.user!.role, template)) throw new AppError(404, "Template not found");
     const sender = await prisma.senderAccount.findUnique({ where: { id: BigInt(body.senderId) } });
     if (!sender) throw new AppError(404, "Mailbox not found");
-    assertTeam(req.user!, sender.teamId);
+    await assertSenderAccess(req.user!, sender.id, sender.teamId);
     const requested = body.recipients ?? (body.to ? body.to.split(/[,;\s]+/) : []);
     const manual = [...new Set(requested.map((email) => normalizeEmail(email)).filter(Boolean))];
     let matched = 0;

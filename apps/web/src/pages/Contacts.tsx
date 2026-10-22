@@ -351,15 +351,27 @@ const LIST_CATEGORIES = [
   { id: "customer", label: "Customer" },
   { id: "event_attendee", label: "Event attendee" },
   { id: "demo_requested", label: "Demo requested" },
+  { id: "__other__", label: "Other — type your own tag" },
 ];
 
 function ImportDialog({ onClose }: { onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [category, setCategory] = useState("");
+  const [customTag, setCustomTag] = useState("");
   const [label, setLabel] = useState("");
   const [demo, setDemo] = useState(false);
+  const isOther = category === "__other__";
   const importCsv = useMutation({
-    mutationFn: () => api.importContacts(file!, { duplicate: "update", category, label: label.trim(), demo }),
+    mutationFn: () => {
+      if (isOther && !customTag.trim()) throw new Error("Type your own tag name for Other");
+      const extra = [isOther ? customTag.trim() : "", label.trim()].filter(Boolean).join(", ");
+      return api.importContacts(file!, {
+        duplicate: "update",
+        category: isOther || !category ? undefined : category,
+        label: extra || undefined,
+        demo,
+      });
+    },
     onSuccess: (result) => {
       const used = Object.entries(result.columns).map(([field, header]) => `${field} from “${header}”`).join(", ");
       const categoryNote = result.category ? ` Tagged ${result.category}.` : "";
@@ -371,28 +383,50 @@ function ImportDialog({ onClose }: { onClose: () => void }) {
     onError: (error: Error) => toast.error(error.message),
   });
   return (
-    <div className="fixed inset-0 grid place-items-center bg-ink-950/40 p-4">
-      <form className="panel w-full max-w-lg space-y-3 p-5" onSubmit={(event) => { event.preventDefault(); if (file) importCsv.mutate(); }}>
-        <h2 className="text-lg font-semibold">Import contacts</h2>
-        <p className="text-sm text-slate-500">CSV or Excel. Headers such as Email, E-mail, Name, First Name, last_name, and tags are recognized in any case. A tags column is optional.</p>
-        <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
-        <Field label="File category">
-          <select className={inputClass} value={category} onChange={(event) => setCategory(event.target.value)}>
-            {LIST_CATEGORIES.map((item) => <option key={item.id || "none"} value={item.id}>{item.label}</option>)}
-          </select>
-        </Field>
-        <p className="text-sm text-slate-500">The category is applied to every row. Tags already in the file are kept as well.</p>
-        <Field label="Event, month, or other tag">
-          <input className={inputClass} value={label} maxLength={240} placeholder="October 2026 launch" onChange={(event) => setLabel(event.target.value)} />
-        </Field>
-        <p className="text-sm text-slate-500">Optional. This name is added to every row, then shows up in the tag filter and in campaign audiences. Use a comma for more than one, such as Diwali meetup, October 2026.</p>
-        <label className="flex items-start gap-2 text-sm">
-          <input className="mt-1" type="checkbox" checked={demo} onChange={(event) => setDemo(event.target.checked)} />
-          <span>This is a demo file. Every row is also tagged Demo data, so the trial list can be filtered and deleted later.</span>
-        </label>
-        <div className="flex justify-end gap-2">
+    <div className="fixed inset-0 z-30 grid place-items-center overflow-y-auto bg-ink-950/40 p-4">
+      <form
+        className="panel flex max-h-[min(92vh,720px)] w-full max-w-lg flex-col overflow-hidden"
+        onSubmit={(event) => { event.preventDefault(); if (file) importCsv.mutate(); }}
+      >
+        <div className="shrink-0 border-b border-slate-100 px-5 py-4">
+          <h2 className="text-lg font-semibold">Import contacts</h2>
+          <p className="mt-1 text-sm text-slate-500">CSV or Excel. Headers such as Email, E-mail, Name, First Name, last_name, and tags are recognized in any case. A tags column is optional.</p>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+          <Field label="File category / tag">
+            <select className={inputClass} value={category} onChange={(event) => setCategory(event.target.value)}>
+              {LIST_CATEGORIES.map((item) => <option key={item.id || "none"} value={item.id}>{item.label}</option>)}
+            </select>
+          </Field>
+          <p className="text-sm text-slate-500">Applied to every row. Tags already in the file are kept as well. Choose <strong>Other</strong> to create any tag name you need.</p>
+          {isOther && (
+            <Field label="Your tag name">
+              <input
+                className={inputClass}
+                value={customTag}
+                maxLength={80}
+                required
+                autoFocus
+                placeholder="e.g. Diwali meetup 2026"
+                onChange={(event) => setCustomTag(event.target.value)}
+                aria-label="Custom tag name"
+              />
+              <p className="mt-1 text-xs text-slate-500">This becomes a new tag on every imported contact, then usable in campaigns.</p>
+            </Field>
+          )}
+          <Field label="Extra tags (optional)">
+            <input className={inputClass} value={label} maxLength={240} placeholder="October 2026, VIP" onChange={(event) => setLabel(event.target.value)} />
+          </Field>
+          <p className="text-sm text-slate-500">Optional second tags on top of the category above. Use a comma for more than one.</p>
+          <label className="flex items-start gap-2 text-sm">
+            <input className="mt-1" type="checkbox" checked={demo} onChange={(event) => setDemo(event.target.checked)} />
+            <span>This is a demo file. Every row is also tagged Demo data, so the trial list can be filtered and deleted later.</span>
+          </label>
+        </div>
+        <div className="flex shrink-0 justify-end gap-2 border-t border-slate-100 bg-white px-5 py-3">
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={!file || importCsv.isPending}>Import</Button>
+          <Button type="submit" disabled={!file || importCsv.isPending || (isOther && !customTag.trim())}>Import</Button>
         </div>
       </form>
     </div>

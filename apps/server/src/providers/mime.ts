@@ -39,9 +39,11 @@ export function buildMime(message: SendMessage): string {
     `--${boundary}--`,
     "",
   ];
+  const ccList = (message.cc ?? []).map((address) => address.replace(/[\r\n]/g, "")).filter(Boolean);
   const headerLines = [
     `From: ${formatAddress(message.fromName, message.fromEmail)}`,
     `To: ${message.to.replace(/[\r\n]/g, "")}`,
+    ccList.length > 0 ? `Cc: ${ccList.join(", ")}` : "",
     message.replyTo ? `Reply-To: ${message.replyTo.replace(/[\r\n]/g, "")}` : "",
     `Subject: ${encodeWord(message.subject)}`,
     "MIME-Version: 1.0",

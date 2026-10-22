@@ -6,11 +6,12 @@ import { prisma } from "../db";
 import { AppError } from "../errors";
 import { pageParams, send } from "../http";
 import { audit } from "../lib/audit";
-import { assertTeam, teamFilter } from "../lib/team";
+import { assertSenderAccess, assertTeam, teamFilter } from "../lib/team";
 import { wrap } from "../middleware/error";
 import { audienceSchema, resolveAudience } from "../campaigns/audience";
 import { launchCampaign, loadCampaign } from "../campaigns/launch";
 import { precheckCampaign } from "../campaigns/precheck";
+import { parseCcEmails } from "../lib/email";
 import { aggregateCampaign } from "../workers/aggregate";
 import type { AuthUser } from "../types";
 
@@ -22,6 +23,7 @@ const writeSchema = z.object({
   preheader: z.string().max(255).nullable().optional(),
   templateId: z.number().int().positive(),
   audience: audienceSchema,
+  ccEmails: z.string().max(1000).optional(),
   useUtm: z.boolean().optional(),
   senderIds: z.array(z.number().int().positive()).default([]),
   teamId: z.number().int().positive().optional(),
@@ -46,10 +48,19 @@ campaignsRouter.post(
     const teamId = req.user!.role === "admin" ? (body.teamId ?? req.user!.teamId) : req.user!.teamId;
     if (teamId == null) throw new AppError(400, "Choose a team");
     assertTeam(req.user!, teamId);
+    let ccEmails: string | null = null;
+    try {
+      const parsed = parseCcEmails(body.ccEmails);
+      ccEmails = parsed.length > 0 ? parsed.join(", ") : null;
+    } catch (error) {
+      throw new AppError(400, error instanceof Error ? error.message : "Invalid CC email");
+    }
     const template = await prisma.template.findUnique({ where: { id: BigInt(body.templateId) } });
     if (!template) throw new AppError(400, "Template not found");
     const senders = await prisma.senderAccount.findMany({ where: { id: { in: body.senderIds.map((id) => BigInt(id)) } } });
+    if (senders.length !== body.senderIds.length) throw new AppError(400, "One or more mailboxes were not found");
     if (senders.some((sender) => sender.teamId !== teamId)) throw new AppError(400, "Mailboxes must belong to the campaign team");
+    for (const sender of senders) await assertSenderAccess(req.user!, sender.id, sender.teamId);
     const campaign = await prisma.campaign.create({
       data: {
         teamId,
@@ -58,6 +69,7 @@ campaignsRouter.post(
         preheader: body.preheader ?? null,
         templateId: template.id,
         audience: body.audience,
+        ccEmails,
         useUtm: body.useUtm ?? true,
         createdBy: req.user!.id,
         senders: { create: senders.map((sender) => ({ senderId: sender.id })) },

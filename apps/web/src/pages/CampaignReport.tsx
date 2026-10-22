@@ -72,6 +72,11 @@ export function CampaignReportPage() {
         ))}
       </div>
       <p className="mb-4 text-sm text-slate-500">Opens are approximate. Delivered is sent minus bounces.</p>
+      {campaign.data.campaign.ccEmails && (
+        <p className="mb-4 text-sm text-slate-600">
+          <span className="font-medium text-ink-900">CC on every mail:</span> {campaign.data.campaign.ccEmails}
+        </p>
+      )}
       <section className="panel mb-4 h-64 p-4">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={timeline.data?.points ?? []}>

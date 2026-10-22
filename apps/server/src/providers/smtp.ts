@@ -122,6 +122,7 @@ export async function smtpSend(message: SendMessage): Promise<SendResult> {
     await transporter.sendMail({
       from: { name: message.fromName, address: config.email },
       to: message.to,
+      cc: message.cc && message.cc.length > 0 ? message.cc : undefined,
       replyTo: message.replyTo || undefined,
       subject: message.subject,
       html: message.format === "text" ? undefined : message.html,

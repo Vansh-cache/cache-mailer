@@ -14,6 +14,7 @@ export type SendMessage = {
   fromName: string;
   replyTo?: string | null;
   to: string;
+  cc?: string[];
   subject: string;
   html: string;
   text?: string;
@@ -91,6 +92,7 @@ export async function graphSend(message: SendMessage): Promise<SendResult> {
               content: message.format === "text" ? (message.text || message.html) : message.html,
             },
             toRecipients: [{ emailAddress: { address: message.to } }],
+            ccRecipients: (message.cc ?? []).map((address) => ({ emailAddress: { address } })),
             from: { emailAddress: { address: message.fromEmail, name: message.fromName } },
             replyTo: message.replyTo ? [{ emailAddress: { address: message.replyTo } }] : undefined,
             internetMessageHeaders: message.headers ?? [],

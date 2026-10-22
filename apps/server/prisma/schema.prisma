@@ -127,8 +127,19 @@ model User {
   segments     Segment[]
   assets       Asset[]
   sequences    Sequence[]
+  senders      UserSender[]
 
   @@map("users")
+}
+
+model UserSender {
+  userId   BigInt        @map("user_id") @db.UnsignedBigInt
+  senderId BigInt        @map("sender_id") @db.UnsignedBigInt
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sender   SenderAccount @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@id([userId, senderId])
+  @@map("user_senders")
 }
 
 model SenderAccount {
@@ -148,6 +159,7 @@ model SenderAccount {
   campaignSenders CampaignSender[]
   recipients      CampaignRecipient[]
   sequences       Sequence[]
+  users           UserSender[]
 
   @@map("sender_accounts")
 }
@@ -259,6 +271,7 @@ model Campaign {
   htmlSnapshot  String?        @map("html_snapshot") @db.MediumText
   textSnapshot  String?        @map("text_snapshot") @db.MediumText
   audience      Json
+  ccEmails      String?        @map("cc_emails") @db.VarChar(1000)
   useUtm        Boolean        @default(true) @map("use_utm")
   sendFormat    SendFormat     @default(html) @map("send_format")
   hidden        Boolean        @default(false)

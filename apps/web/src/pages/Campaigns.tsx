@@ -56,6 +56,7 @@ export function CampaignWizardPage() {
   });
   const [when, setWhen] = useState("");
   const [teamId, setTeamId] = useState(0);
+  const [ccEmails, setCcEmails] = useState("");
   const [checks, setChecks] = useState<Precheck | null>(null);
   const create = useMutation({
     mutationFn: async () => {
@@ -68,6 +69,7 @@ export function CampaignWizardPage() {
         teamId: teamId || undefined,
         senderIds: senderId ? [senderId] : [],
         audience: { tags: tagIds, segmentId: segmentId || null, excludeTags: [] },
+        ccEmails: ccEmails.trim() || undefined,
         useUtm: true,
       });
       const result = await api.precheck(created.campaign.id);
@@ -111,6 +113,19 @@ export function CampaignWizardPage() {
             <option value={0}>Choose</option>
             {senders.data?.senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.fromEmail}</option>)}
           </select>
+        </Field>
+        <Field label="CC (optional)">
+          <input
+            className={inputClass}
+            type="text"
+            value={ccEmails}
+            onChange={(event) => setCcEmails(event.target.value)}
+            placeholder="manager@company.com, founder@company.com"
+            aria-label="CC email addresses"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            These addresses are copied on every mail in this campaign (comma or semicolon separated, up to 10). Keep this short — each CC person receives one copy per receiver.
+          </p>
         </Field>
         <Field label="Receivers by tag (choose one or more)">
           <div className="space-y-2">

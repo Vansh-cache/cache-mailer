@@ -6,7 +6,7 @@ import { AppError, assertNever } from "../errors";
 import { audit } from "../lib/audit";
 import { normalizeEmail } from "../lib/email";
 import { send } from "../http";
-import { assertTeam, teamFilter } from "../lib/team";
+import { assertSenderAccess, assertTeam, senderWhere, teamFilter } from "../lib/team";
 import { requireRoles } from "../middleware/auth";
 import { wrap } from "../middleware/error";
 import { graphCheck } from "../providers/graph";
@@ -20,7 +20,7 @@ sendersRouter.get(
   "/",
   wrap(async (req, res) => {
     const senders = await prisma.senderAccount.findMany({
-      where: teamFilter(req.user!),
+      where: await senderWhere(req.user!),
       include: { team: true },
       orderBy: { fromEmail: "asc" },
     });
@@ -103,7 +103,7 @@ sendersRouter.post(
   wrap(async (req, res) => {
     const sender = await prisma.senderAccount.findUnique({ where: { id: BigInt(req.params.id) } });
     if (!sender) throw new AppError(404, "Mailbox not found");
-    assertTeam(req.user!, sender.teamId);
+    await assertSenderAccess(req.user!, sender.id, sender.teamId);
     try {
       switch (sender.provider) {
         case "graph":
@@ -146,7 +146,7 @@ sendersRouter.post(
     const body = z.object({ to: z.string().email() }).parse(req.body);
     const sender = await prisma.senderAccount.findUnique({ where: { id: BigInt(req.params.id) } });
     if (!sender) throw new AppError(404, "Mailbox not found");
-    assertTeam(req.user!, sender.teamId);
+    await assertSenderAccess(req.user!, sender.id, sender.teamId);
     const result = await sendMail(sender.provider, {
       fromEmail: sender.fromEmail,
       fromName: sender.fromName,
