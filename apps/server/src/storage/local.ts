@@ -27,7 +27,9 @@ export function detectImage(buffer: Buffer): { mime: string; ext: string } | nul
   return null;
 }
 
-export async function saveImage(buffer: Buffer): Promise<{ fileName: string; url: string; sizeBytes: number }> {
+export async function saveImage(
+  buffer: Buffer,
+): Promise<{ fileName: string; url: string; sizeBytes: number; mimeType: string; data: Buffer }> {
   const detected = detectImage(buffer);
   if (!detected || !TYPES[detected.mime]) {
     throw new Error("Only JPG, PNG, GIF, and WebP images are allowed");
@@ -47,5 +49,5 @@ export async function saveImage(buffer: Buffer): Promise<{ fileName: string; url
   // Store a host-independent path. The file lives permanently in the server's
   // upload dir; the absolute public URL is only built at email render time
   // from MEDIA_URL, so templates keep working whatever host/IP opens the app.
-  return { fileName, url: `/media/${fileName}`, sizeBytes: output.length };
+  return { fileName, url: `/media/${fileName}`, sizeBytes: output.length, mimeType: detected.mime, data: output };
 }

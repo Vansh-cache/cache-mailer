@@ -9,14 +9,14 @@ import Underline from "@tiptap/extension-underline";
 import { EditorContent, useEditor as useTipTap } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, Copy, Eye, GripVertical, Image as ImageIcon, LayoutTemplate, Minus, MousePointerClick, MoveVertical, Pencil, Plus, Redo2, Send, SlidersHorizontal, Sparkles, Trash2, Type, Undo2, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Copy, Eye, GripVertical, Image as ImageIcon, LayoutTemplate, Minus, MousePointerClick, MoveVertical, Pencil, Plus, Redo2, Send, SlidersHorizontal, Sparkles, Trash2, Type, Undo2, Upload, type LucideIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import toast from "react-hot-toast";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button, inputClass } from "../components/ui";
 import { api, mediaPath, type Block, type Section } from "../lib/api";
 import { uid } from "../lib/uid";
-import { addBlock, blockSection, designFromStore, useEditor } from "../store/editor";
+import { addBlock, blockSection, designFromStore, insertBlock, useEditor } from "../store/editor";
 
 const compactInput = "h-9 rounded-lg border border-slate-300 bg-white px-2.5 text-[13px] text-ink-900 shadow-sm transition placeholder:text-slate-400 focus:border-tide-600 focus:ring-2 focus:ring-tide-600/20";
 const toolbarButton = "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] font-medium text-slate-700 shadow-sm transition hover:border-tide-600 hover:text-tide-700 disabled:cursor-not-allowed disabled:opacity-40";
@@ -68,10 +68,23 @@ export function EditorPage() {
       {dirty ? "Unsaved changes" : "Saved"}
     </span>
   );
+  const useInCampaign = async () => {
+    try {
+      if (useEditor.getState().dirty) await save.mutateAsync();
+      navigate(`/campaigns/new?templateId=${id}`);
+    } catch {
+      // save's onError already showed the reason
+    }
+  };
   const saveButton = (
-    <Button className="h-8 rounded-lg px-3.5 py-0 text-[13px] shadow-sm" onClick={() => save.mutate()} disabled={save.isPending}>
-      {dirty ? "Save" : <span className="inline-flex items-center gap-1"><Check size={14} /> Saved</span>}
-    </Button>
+    <>
+      <Button className="h-8 rounded-lg px-3.5 py-0 text-[13px] shadow-sm" onClick={() => save.mutate()} disabled={save.isPending}>
+        {dirty ? "Save" : <span className="inline-flex items-center gap-1"><Check size={14} /> Saved</span>}
+      </Button>
+      <button type="button" className={toolbarButton} onClick={useInCampaign} disabled={save.isPending} title="Save this template and start a campaign with it">
+        <Send size={14} /> {dirty ? "Save & use in campaign" : "Use in campaign"}
+      </button>
+    </>
   );
   const composeToggle = (
     <button
@@ -195,6 +208,9 @@ const BLOCK_CARD_META: Record<Block["type"], { label: string; icon: LucideIcon }
 
 function EditPanel() {
   const navigate = useNavigate();
+  const params = useParams();
+  const templateId = Number(params.id);
+  const queryClient = useQueryClient();
   const activeSection = useEditor((state) => state.activeSection);
   const blocks = useEditor((state) => state.blocks);
   const selectedId = useEditor((state) => state.selectedId);
@@ -203,6 +219,37 @@ function EditPanel() {
   const sectionBlocks = blocks.filter((block) => blockSection(block) === activeSection);
   const countFor = (section: Section) => blocks.filter((block) => blockSection(block) === section).length;
   const [globalOpen, setGlobalOpen] = useState(false);
+  const [uploadingAsset, setUploadingAsset] = useState(false);
+  const directAssetRef = useRef<HTMLInputElement>(null);
+
+  const handleDirectAssetUpload = async (file: File) => {
+    setUploadingAsset(true);
+    try {
+      const uploaded = await api.upload(file);
+      const newBlock: Block = {
+        id: uid(),
+        section: activeSection,
+        type: "image",
+        src: uploaded.asset.url,
+        alt: file.name.replace(/\.[^/.]+$/, ""),
+        width: activeSection === "header" ? "240px" : "100%",
+        align: "center",
+      };
+      insertBlock(newBlock);
+      if (templateId) {
+        await api.saveTemplate(templateId, { name: useEditor.getState().name, design: designFromStore() });
+        useEditor.getState().markClean();
+        await queryClient.invalidateQueries({ queryKey: ["template", templateId] });
+      }
+      await queryClient.invalidateQueries({ queryKey: ["assets"] });
+      toast.success("Asset saved on server & stored in template body");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Asset upload failed");
+    } finally {
+      setUploadingAsset(false);
+      if (directAssetRef.current) directAssetRef.current.value = "";
+    }
+  };
   useEffect(() => {
     if (!selectedId) return;
     document.getElementById(`block-card-${selectedId}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -256,7 +303,27 @@ function EditPanel() {
           <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide">Editing: {meta.title}</span>
           <span className="truncate text-[10px] text-white/70">{meta.hint}</span>
         </div>
-        <div className="mt-1.5 flex flex-nowrap gap-1 overflow-x-auto pb-0.5">
+        <div className="mt-1.5 flex flex-nowrap items-center gap-1 overflow-x-auto pb-0.5">
+          <input
+            ref={directAssetRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleDirectAssetUpload(file);
+            }}
+          />
+          <button
+            type="button"
+            disabled={uploadingAsset}
+            className="inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-tide-300 bg-tide-50 px-2 text-[11px] font-semibold text-tide-800 shadow-sm transition hover:bg-tide-100 disabled:opacity-50"
+            onClick={() => directAssetRef.current?.click()}
+            title={`Upload logo or image asset directly into the ${meta.title.toLowerCase()}`}
+          >
+            <Upload size={12} className="text-tide-700" />
+            {uploadingAsset ? "Adding..." : "+ Asset / Logo"}
+          </button>
           {BLOCK_BUTTONS.map((item) => (
             <button
               key={item.type}
@@ -703,6 +770,8 @@ function SavedImages({ currentSrc, onPick }: { currentSrc: string; onPick: (url:
 
 function BlockSettings({ block }: { block: Block }) {
   const queryClient = useQueryClient();
+  const params = useParams();
+  const templateId = Number(params.id);
   const patch = (recipe: (current: Block) => void) => useEditor.getState().change((draft) => {
     const current = draft.blocks.find((item) => item.id === block.id);
     if (current) recipe(current);
@@ -785,24 +854,41 @@ function BlockSettings({ block }: { block: Block }) {
             <p className="mt-1 text-[10px] leading-snug text-tide-700/70">This removes the picture. You can Undo (top bar) if you change your mind.</p>
           </div>
           <label className="block">
-            <span className="mb-1 block font-medium">Upload image (saved on the server)</span>
+            <span className="mb-1 block font-medium">Upload image (saved on server & stored in template body)</span>
             <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" onChange={async (event) => {
               const file = event.target.files?.[0];
               if (!file) return;
               try {
                 const uploaded = await api.upload(file);
                 patch((current) => { if (current.type === "image") current.src = uploaded.asset.url; });
+                if (templateId) {
+                  await api.saveTemplate(templateId, { name: useEditor.getState().name, design: designFromStore() });
+                  useEditor.getState().markClean();
+                  await queryClient.invalidateQueries({ queryKey: ["template", templateId] });
+                }
                 await queryClient.invalidateQueries({ queryKey: ["assets"] });
-                toast.success("Image saved on the server");
+                toast.success("Asset saved on server & stored in template body");
               } catch (error) {
                 toast.error(error instanceof Error ? error.message : "Upload failed");
               }
             }} />
-            <span className="mt-1 block text-xs text-slate-500">JPG, PNG, GIF or WebP. Stored permanently on the server, so it stays in the template wherever the app runs.</span>
+            <span className="mt-1 block text-xs text-slate-500">JPG, PNG, GIF or WebP. Saved permanently on the server and stored in the template body for sending.</span>
           </label>
           <div className="block">
             <span className="mb-1 block text-[11px] font-semibold text-slate-600">Saved images</span>
-            <SavedImages currentSrc={block.src} onPick={(url) => patch((current) => { if (current.type === "image") current.src = url; })} />
+            <SavedImages currentSrc={block.src} onPick={async (url) => {
+              patch((current) => { if (current.type === "image") current.src = url; });
+              if (templateId) {
+                try {
+                  await api.saveTemplate(templateId, { name: useEditor.getState().name, design: designFromStore() });
+                  useEditor.getState().markClean();
+                  await queryClient.invalidateQueries({ queryKey: ["template", templateId] });
+                  toast.success("Asset applied & stored in template body");
+                } catch {
+                  // Editor marked dirty so autosave/manual save can persist
+                }
+              }
+            }} />
           </div>
           <label className="block">
             <span className="mb-1 block font-medium">...or image web address (URL)</span>
@@ -1152,18 +1238,79 @@ function PreviewButton() {
   );
 }
 
+function TagPicker({
+  tags,
+  selected,
+  onChange,
+}: {
+  tags: { id: number; name: string; count: number }[];
+  selected: number[];
+  onChange: (ids: number[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  const toggle = (id: number) => onChange(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
+  const label = selected.length === 0
+    ? "Or send test to tags..."
+    : selected.length === 1
+      ? tags.find((tag) => tag.id === selected[0])?.name ?? "1 tag"
+      : `${selected.length} tags selected`;
+  return (
+    <div ref={ref} className="relative flex-none">
+      <button type="button" className={`${compactInput} w-48 truncate text-left`} onClick={() => setOpen((value) => !value)} aria-label="Test receivers by tag" aria-expanded={open}>
+        {label}
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 w-64 rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+          <div className="mb-2 flex gap-1.5">
+            <button type="button" className={`${toolbarButton} h-7 flex-1 text-xs`} disabled={tags.length === 0 || selected.length === tags.length} onClick={() => onChange(tags.map((tag) => tag.id))}>Select all</button>
+            <button type="button" className={`${toolbarButton} h-7 flex-1 text-xs`} disabled={selected.length === 0} onClick={() => onChange([])}>Clear all</button>
+          </div>
+          <div className="max-h-56 space-y-0.5 overflow-y-auto">
+            {tags.map((tag) => (
+              <label key={tag.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[13px] hover:bg-slate-50">
+                <input type="checkbox" checked={selected.includes(tag.id)} onChange={() => toggle(tag.id)} />
+                <span className="flex-1 truncate">{tag.name}</span>
+                <span className="text-slate-400">{tag.count}</span>
+              </label>
+            ))}
+            {tags.length === 0 && <p className="px-1.5 py-1 text-xs text-slate-500">No tags yet.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TestSend({ templateId }: { templateId: number }) {
+  const queryClient = useQueryClient();
   const senders = useQuery({ queryKey: ["senders"], queryFn: api.senders });
   const contacts = useQuery({ queryKey: ["test-receivers"], queryFn: () => api.contacts("?pageSize=100") });
   const tags = useQuery({ queryKey: ["tags"], queryFn: api.tags });
   const [senderId, setSenderId] = useState(0);
   const [receiver, setReceiver] = useState("");
-  const [tagId, setTagId] = useState(0);
+  const [tagIds, setTagIds] = useState<number[]>([]);
   const send = useMutation({
-    mutationFn: () => api.testSend(templateId, senderId, receiver, tagId ? [tagId] : []),
+    mutationFn: async () => {
+      const design = designFromStore();
+      if (useEditor.getState().dirty) {
+        await api.saveTemplate(templateId, { name: useEditor.getState().name, design });
+        useEditor.getState().markClean();
+        await queryClient.invalidateQueries({ queryKey: ["template", templateId] });
+      }
+      return api.testSend(templateId, senderId, receiver, tagIds, design);
+    },
     onSuccess: (result) => toast.success(
       result.truncated
-        ? `Test sent to first ${result.sent.length} of ${result.matched} contacts in the selected tag`
+        ? `Test sent to first ${result.sent.length} of ${result.matched} contacts in the selected tags`
         : `Test sent to ${result.sent.join(", ")}`,
     ),
     onError: (error: Error) => toast.error(error.message),
@@ -1177,22 +1324,19 @@ function TestSend({ templateId }: { templateId: number }) {
         <option value={0}>Choose mailbox</option>
         {senders.data?.senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.fromEmail}</option>)}
       </select>
-      <select className={`${compactInput} w-48 flex-none`} value={tagId} onChange={(event) => setTagId(Number(event.target.value))} aria-label="Test receivers by tag">
-        <option value={0}>Or send test to a tag...</option>
-        {tags.data?.tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name} ({tag.count})</option>)}
-      </select>
+      <TagPicker tags={tags.data?.tags ?? []} selected={tagIds} onChange={setTagIds} />
       <input
         className={`${compactInput} min-w-52 flex-1`}
         value={receiver}
         onChange={(event) => setReceiver(event.target.value)}
-        placeholder="Receiver email (optional if tag chosen)"
+        placeholder="Receiver email(s), comma separated (optional if tags chosen)"
         list="test-receiver-options"
         aria-label="Test receiver email"
       />
       <datalist id="test-receiver-options">
         {contacts.data?.contacts.map((contact) => <option key={contact.id} value={contact.email}>{contact.email}</option>)}
       </datalist>
-      <button type="button" className={`${toolbarButton} h-9 shrink-0 px-3`} disabled={!senderId || (!receiver.trim() && !tagId) || send.isPending} onClick={() => send.mutate()}>
+      <button type="button" className={`${toolbarButton} h-9 shrink-0 px-3`} disabled={!senderId || (!receiver.trim() && tagIds.length === 0) || send.isPending} onClick={() => send.mutate()}>
         <Send size={13} /> {send.isPending ? "Sending..." : "Send test"}
       </button>
     </div>

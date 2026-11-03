@@ -98,6 +98,32 @@ sendersRouter.patch(
   }),
 );
 
+sendersRouter.delete(
+  "/:id",
+  requireRoles("admin"),
+  wrap(async (req, res) => {
+    const sender = await prisma.senderAccount.findUnique({
+      where: { id: BigInt(req.params.id) },
+      include: { _count: { select: { campaignSenders: true, recipients: true, sequences: true } } },
+    });
+    if (!sender) throw new AppError(404, "Mailbox not found");
+    const { campaignSenders, recipients, sequences } = sender._count;
+    if (campaignSenders > 0 || recipients > 0 || sequences > 0) {
+      const uses = [
+        campaignSenders > 0 ? `${campaignSenders} campaign${campaignSenders === 1 ? "" : "s"}` : "",
+        sequences > 0 ? `${sequences} sequence${sequences === 1 ? "" : "s"}` : "",
+      ].filter(Boolean);
+      throw new AppError(
+        409,
+        `This mailbox is used by ${uses.join(" and ") || "sent campaign history"}, so it can't be deleted. Pause it instead.`,
+      );
+    }
+    await prisma.senderAccount.delete({ where: { id: sender.id } });
+    await audit(req.user!.id, "mailbox.delete", "sender", sender.id, { email: sender.fromEmail });
+    send(res, 200, { ok: true });
+  }),
+);
+
 sendersRouter.post(
   "/:id/check",
   wrap(async (req, res) => {

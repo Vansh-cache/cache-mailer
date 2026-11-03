@@ -77,6 +77,25 @@ test("uploaded images embed as CID attachments and MIME carries them inline", as
   }
 });
 
+test("uploaded images in background attributes and css url embed as CID attachments", async () => {
+  const fileName = "abcdef0123456789abcdef0123456789.png";
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII=", "base64");
+  const filePath = path.join(config.uploadDir, fileName);
+  await fs.promises.mkdir(config.uploadDir, { recursive: true });
+  await fs.promises.writeFile(filePath, png);
+  try {
+    const html = `<td background="http://127.0.0.1:4000/media/${fileName}"><div style="background: url('http://127.0.0.1:4000/media/${fileName}')"><img\n  alt="logo"\n  src="http://127.0.0.1:4000/media/${fileName}" /></div></td>`;
+    const result = await embedUploadedImages(html);
+    assert.equal(result.attachments.length, 1);
+    assert.match(result.html, /background="cid:img[0-9a-f]{20}"/);
+    assert.match(result.html, /url\('cid:img[0-9a-f]{20}'\)/);
+    assert.match(result.html, /src="cid:img[0-9a-f]{20}"/);
+    assert.ok(!result.html.includes("/media/"));
+  } finally {
+    await fs.promises.unlink(filePath).catch(() => undefined);
+  }
+});
+
 test("banner image renders heading over the image with a colour fallback, and text blocks carry their background", async () => {
   const footer = { company: "Cachedigitech", address: "New Delhi" };
   const banner = await renderDesign(

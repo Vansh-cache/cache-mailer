@@ -233,11 +233,26 @@ model Asset {
   fileName   String   @map("file_name") @db.VarChar(190)
   url        String   @db.VarChar(500)
   sizeBytes  Int      @map("size_bytes") @db.UnsignedInt
+  mimeType   String?  @map("mime_type") @db.VarChar(40)
+  data       Bytes?   @db.MediumBlob
   uploadedBy BigInt   @map("uploaded_by") @db.UnsignedBigInt
   createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(0)
   uploader   User     @relation(fields: [uploadedBy], references: [id])
+  templates  TemplateAsset[]
 
+  @@index([fileName])
   @@map("assets")
+}
+
+model TemplateAsset {
+  templateId BigInt   @map("template_id") @db.UnsignedBigInt
+  assetId    BigInt   @map("asset_id") @db.UnsignedBigInt
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  asset      Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([templateId, assetId])
+  @@index([assetId])
+  @@map("template_assets")
 }
 
 model Template {
@@ -257,6 +272,7 @@ model Template {
   author      User               @relation(fields: [createdBy], references: [id])
   campaigns     Campaign[]
   sequenceSteps SequenceStep[]
+  assets        TemplateAsset[]
 
   @@map("templates")
 }

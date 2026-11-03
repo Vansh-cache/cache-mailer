@@ -14,7 +14,7 @@ export const mediaRouter = Router();
 mediaRouter.get(
   "/",
   wrap(async (_req, res) => {
-    const assets = await prisma.asset.findMany({ orderBy: { id: "desc" }, take: 100 });
+    const assets = await prisma.asset.findMany({ omit: { data: true }, orderBy: { id: "desc" }, take: 100 });
     send(res, 200, { assets });
   }),
 );
@@ -27,7 +27,15 @@ mediaRouter.post(
     try {
       const saved = await saveImage(req.file.buffer);
       const asset = await prisma.asset.create({
-        data: { fileName: saved.fileName, url: saved.url, sizeBytes: saved.sizeBytes, uploadedBy: req.user!.id },
+        data: {
+          fileName: saved.fileName,
+          url: saved.url,
+          sizeBytes: saved.sizeBytes,
+          mimeType: saved.mimeType,
+          data: new Uint8Array(saved.data),
+          uploadedBy: req.user!.id,
+        },
+        omit: { data: true },
       });
       await audit(req.user!.id, "asset.upload", "asset", asset.id);
       send(res, 201, { asset });

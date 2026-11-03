@@ -131,8 +131,8 @@ export const api = {
   deleteTemplate: (id: number) => request(`/api/templates/${id}`, { method: "DELETE" }),
   duplicateTemplate: (id: number) => request<{ template: Template }>(`/api/templates/${id}/duplicate`, { method: "POST" }),
   preview: (design: Design) => request<{ html: string; text: string }>("/api/templates/preview", { method: "POST", body: JSON.stringify({ design }) }),
-  testSend: (id: number, senderId: number, receiver: string, tagIds: number[] = []) => request<{ ok: boolean; sent: string[]; matched: number; truncated: boolean }>(`/api/templates/${id}/test-send`, { method: "POST", body: JSON.stringify({ senderId, to: receiver, tagIds }) }),
-  audiencePreview: (body: { tags: number[]; segmentId?: number | null; excludeTags?: number[] }) => request<{ count: number }>("/api/campaigns/audience-preview", { method: "POST", body: JSON.stringify(body) }),
+  testSend: (id: number, senderId: number, receiver: string, tagIds: number[] = [], design?: Design) => request<{ ok: boolean; sent: string[]; matched: number; truncated: boolean }>(`/api/templates/${id}/test-send`, { method: "POST", body: JSON.stringify({ senderId, to: receiver, tagIds, design }) }),
+  audiencePreview: (body: { tags: number[]; segmentId?: number | null; excludeTags?: number[]; emails?: string[] }) => request<{ count: number }>("/api/campaigns/audience-preview", { method: "POST", body: JSON.stringify(body) }),
   upload: (file: File) => {
     const body = new FormData();
     body.set("file", file);
@@ -142,6 +142,7 @@ export const api = {
   senders: () => request<{ senders: Sender[] }>("/api/senders"),
   createSender: (body: unknown) => request("/api/senders", { method: "POST", body: JSON.stringify(body) }),
   updateSender: (id: number, body: unknown) => request(`/api/senders/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteSender: (id: number) => request(`/api/senders/${id}`, { method: "DELETE" }),
   checkSender: (id: number) => request<{ ok: boolean; error?: string }>(`/api/senders/${id}/check`, { method: "POST" }),
   testSender: (id: number, to: string) => request(`/api/senders/${id}/test`, { method: "POST", body: JSON.stringify({ to }) }),
   campaigns: () => request<{ campaigns: Campaign[] }>("/api/campaigns"),
@@ -155,7 +156,12 @@ export const api = {
   stats: (id: number) => request<Stats>(`/api/campaigns/${id}/stats`),
   timeline: (id: number) => request<{ points: { hourStart: string; opens: number; clicks: number }[] }>(`/api/campaigns/${id}/timeline`),
   links: (id: number) => request<{ links: { id: number; original_url: string; total: number; uniq: number }[] }>(`/api/campaigns/${id}/links`),
-  recipients: (id: number) => request<{ recipients: Recipient[] }>(`/api/campaigns/${id}/recipients?pageSize=100`),
+  recipients: (id: number, query: { status?: string; search?: string; page?: number } = {}) => {
+    const params = new URLSearchParams({ pageSize: "50", page: String(query.page ?? 1) });
+    if (query.status) params.set("status", query.status);
+    if (query.search) params.set("search", query.search);
+    return request<{ recipients: Recipient[]; total: number; page: number; pageSize: number; counts: RecipientCounts }>(`/api/campaigns/${id}/recipients?${params}`);
+  },
   overview: () => request<Overview>("/api/analytics/overview"),
   retryDelivery: (id: number) => request(`/api/analytics/delivery/${id}/retry`, { method: "POST" }),
   settings: () => request<{ settings: Record<string, string>; smtpPasswordSet: boolean }>("/api/settings"),
@@ -260,7 +266,21 @@ export type Stats = {
   rates: { bounce: number; open: number; ctr: number; ctor: number; unsubscribe: number; reply: number };
 };
 
-export type Recipient = { id: number; status: string; sentAt: string | null; lastError: string | null; contact: { email: string; firstName: string | null } };
+export type RecipientStatus = "queued" | "processing" | "sent" | "failed" | "skipped";
+
+export type RecipientCounts = Record<RecipientStatus, number>;
+
+export type Recipient = {
+  id: number;
+  status: RecipientStatus;
+  skipReason: string | null;
+  attempts: number;
+  nextAttemptAt: string;
+  sentAt: string | null;
+  lastError: string | null;
+  contact: { email: string; firstName: string | null };
+  sender: { fromEmail: string };
+};
 
 export type Overview = {
   scope: { role: Role; teamName: string | null };

@@ -52,6 +52,14 @@ export function MailboxesPage() {
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ["senders"] }); },
     onError: (error: Error) => toast.error(error.message),
   });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.deleteSender(id),
+    onSuccess: async () => {
+      toast.success("Mailbox deleted");
+      await queryClient.invalidateQueries({ queryKey: ["senders"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
   return (
     <div>
       <PageHeader title="Mailboxes" />
@@ -96,6 +104,17 @@ export function MailboxesPage() {
                     <option value="smtp">SMTP</option>
                     <option value="graph">Microsoft 365</option>
                   </select>
+                )}
+                {me.data?.user.role === "admin" && (
+                  <Button
+                    variant="danger"
+                    disabled={remove.isPending}
+                    onClick={() => {
+                      if (window.confirm(`Delete mailbox ${sender.fromEmail}? This cannot be undone.`)) remove.mutate(sender.id);
+                    }}
+                  >
+                    Delete
+                  </Button>
                 )}
               </div>
             </article>

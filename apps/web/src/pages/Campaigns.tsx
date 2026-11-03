@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Badge, Button, Field, PageHeader, inputClass, statusTone } from "../components/ui";
 import { api, type Precheck } from "../lib/api";
 import { Link } from "react-router-dom";
@@ -35,6 +35,8 @@ const PREDEFINED_TAGS = new Set(["Lead", "Customer", "Event attendee", "Demo req
 
 export function CampaignWizardPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const presetTemplateId = Number(searchParams.get("templateId")) || 0;
   const templates = useQuery({ queryKey: ["templates"], queryFn: () => api.templates() });
   const tags = useQuery({ queryKey: ["tags"], queryFn: api.tags });
   const segments = useQuery({ queryKey: ["segments"], queryFn: api.segments });
@@ -43,15 +45,22 @@ export function CampaignWizardPage() {
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [preheader, setPreheader] = useState("");
-  const [templateId, setTemplateId] = useState(0);
+  const [templateId, setTemplateId] = useState(presetTemplateId);
+  const presetTemplate = templates.data?.templates.find((template) => template.id === presetTemplateId);
+  useEffect(() => {
+    if (presetTemplate) setName((current) => current || presetTemplate.name);
+  }, [presetTemplate]);
   const [senderId, setSenderId] = useState(0);
   const [tagIds, setTagIds] = useState<number[]>([]);
   const [tagSearch, setTagSearch] = useState("");
   const [segmentId, setSegmentId] = useState(0);
+  const [manualText, setManualText] = useState("");
+  const emails = [...new Set(manualText.split(/[\s,;]+/).map((email) => email.trim().toLowerCase()).filter(Boolean))];
+  const hasAudience = tagIds.length > 0 || segmentId > 0 || emails.length > 0;
   const audience = useQuery({
-    queryKey: ["audience-preview", tagIds, segmentId],
-    queryFn: () => api.audiencePreview({ tags: tagIds, segmentId: segmentId || null, excludeTags: [] }),
-    enabled: tagIds.length > 0 || segmentId > 0,
+    queryKey: ["audience-preview", tagIds, segmentId, emails],
+    queryFn: () => api.audiencePreview({ tags: tagIds, segmentId: segmentId || null, excludeTags: [], emails }),
+    enabled: hasAudience,
     retry: false,
   });
   const [when, setWhen] = useState("");
@@ -60,7 +69,7 @@ export function CampaignWizardPage() {
   const [checks, setChecks] = useState<Precheck | null>(null);
   const create = useMutation({
     mutationFn: async () => {
-      if (tagIds.length === 0 && !segmentId) throw new Error("Choose at least one tag or a saved segment");
+      if (!hasAudience) throw new Error("Choose at least one tag, a saved segment, or add receivers manually");
       const created = await api.createCampaign({
         name,
         subject,
@@ -68,7 +77,7 @@ export function CampaignWizardPage() {
         templateId,
         teamId: teamId || undefined,
         senderIds: senderId ? [senderId] : [],
-        audience: { tags: tagIds, segmentId: segmentId || null, excludeTags: [] },
+        audience: { tags: tagIds, segmentId: segmentId || null, excludeTags: [], emails },
         ccEmails: ccEmails.trim() || undefined,
         useUtm: true,
       });
@@ -89,6 +98,7 @@ export function CampaignWizardPage() {
   ];
   const toggleTag = (id: number) =>
     setTagIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  const selectAllVisible = () => setTagIds((current) => [...new Set([...current, ...visibleTags.map((tag) => tag.id)])]);
   return (
     <div>
       <PageHeader title="New email campaign" />
@@ -136,6 +146,15 @@ export function CampaignWizardPage() {
               placeholder="Search tags, e.g. October 2026 launch"
               aria-label="Search tags"
             />
+            <div className="flex items-center gap-2 text-xs">
+              <button type="button" className="rounded border border-slate-300 px-2 py-1 font-medium hover:bg-slate-50 disabled:opacity-50" disabled={visibleTags.length === 0} onClick={selectAllVisible}>
+                {tagSearch.trim() ? "Select all shown" : "Select all"}
+              </button>
+              <button type="button" className="rounded border border-slate-300 px-2 py-1 font-medium hover:bg-slate-50 disabled:opacity-50" disabled={tagIds.length === 0} onClick={() => setTagIds([])}>
+                Clear all
+              </button>
+              <span className="text-slate-500">{tagIds.length} selected</span>
+            </div>
             <div className="max-h-56 space-y-3 overflow-y-auto rounded-md border border-slate-200 p-3">
               {tagGroups.map((group) => group.items.length > 0 && (
                 <div key={group.title}>
@@ -157,8 +176,22 @@ export function CampaignWizardPage() {
               Everyone with <strong>any</strong> selected tag receives the mail, only once. Unsubscribed and blocked contacts are always skipped.
               {audience.data && <> <strong>{audience.data.count} people</strong> will receive this campaign.</>}
               {audience.isFetching && <> Counting receivers…</>}
+              {audience.error && <span className="text-rose-700"> {audience.error.message}</span>}
             </p>
           </div>
+        </Field>
+        <Field label="Add receivers manually (optional)">
+          <textarea
+            className={`${inputClass} min-h-20`}
+            value={manualText}
+            onChange={(event) => setManualText(event.target.value)}
+            placeholder="one@company.com, two@company.com"
+            aria-label="Manual receiver emails"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Separate with commas, spaces or new lines. Works with or without tags. New addresses are saved as contacts; unsubscribed and blocked addresses are still skipped.
+            {emails.length > 0 && <> <strong>{emails.length}</strong> typed.</>}
+          </p>
         </Field>
         <Field label="Segment">
           <select className={inputClass} value={segmentId} onChange={(event) => setSegmentId(Number(event.target.value))}>
@@ -174,7 +207,7 @@ export function CampaignWizardPage() {
             {checks.checks.map((check) => <li key={check.id}>{check.ok ? "OK" : "Fix"} — {check.detail}</li>)}
           </ul>
         )}
-        <Button type="submit" disabled={create.isPending || (tagIds.length === 0 && !segmentId)}>Review and send</Button>
+        <Button type="submit" disabled={create.isPending || !hasAudience}>Review and send</Button>
       </form>
     </div>
   );

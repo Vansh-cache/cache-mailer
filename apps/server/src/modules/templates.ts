@@ -12,9 +12,10 @@ import { assertSenderAccess, assertTeam, teamFilter } from "../lib/team";
 import { wrap } from "../middleware/error";
 import { sendMail } from "../providers/mail";
 import { designSchema } from "../render/design";
-import { embedUploadedImages } from "../render/embed-images";
+import { embedUploadedImages, mediaFilesIn } from "../render/embed-images";
 import { renderDesign } from "../render/email";
 import { contactFields, personalize, personalizeHtml } from "../render/personalize";
+import { syncTemplateAssets } from "../storage/assets";
 
 export const templatesRouter = Router();
 
@@ -63,6 +64,7 @@ templatesRouter.post(
         createdBy: req.user!.id,
       },
     });
+    await syncTemplateAssets(template.id, mediaFilesIn(rendered.html));
     send(res, 201, { template });
   }),
 );
@@ -79,9 +81,13 @@ templatesRouter.post(
 templatesRouter.get(
   "/:id",
   wrap(async (req, res) => {
-    const template = await prisma.template.findUnique({ where: { id: BigInt(req.params.id) } });
+    const template = await prisma.template.findUnique({
+      where: { id: BigInt(req.params.id) },
+      include: { assets: { include: { asset: { omit: { data: true } } } } },
+    });
     if (!template || !visible(req.user!.teamId, req.user!.role, template)) throw new AppError(404, "Template not found");
-    send(res, 200, { template });
+    const { assets, ...rest } = template;
+    send(res, 200, { template: { ...rest, assets: assets.map((link) => link.asset) } });
   }),
 );
 
@@ -113,6 +119,7 @@ templatesRouter.put(
         textVersion: rendered?.text,
       },
     });
+    if (rendered) await syncTemplateAssets(template.id, mediaFilesIn(rendered.html));
     send(res, 200, { template });
   }),
 );
@@ -147,6 +154,7 @@ templatesRouter.post(
         createdBy: req.user!.id,
       },
     });
+    await syncTemplateAssets(template.id, mediaFilesIn(existing.html ?? ""));
     send(res, 201, { template });
   }),
 );
@@ -158,7 +166,8 @@ templatesRouter.post(
       senderId: z.number().int().positive(),
       to: z.string().max(1000).optional(),
       recipients: z.array(z.string().max(190)).max(10).optional(),
-      tagIds: z.array(z.number().int().positive()).max(20).optional(),
+      tagIds: z.array(z.number().int().positive()).max(500).optional(),
+      design: designSchema.optional(),
     }).parse(req.body);
     const template = await prisma.template.findUnique({ where: { id: BigInt(req.params.id) } });
     if (!template || !visible(req.user!.teamId, req.user!.role, template)) throw new AppError(404, "Template not found");
@@ -170,7 +179,7 @@ templatesRouter.post(
     let matched = 0;
     let tagged: string[] = [];
     if (body.tagIds && body.tagIds.length > 0) {
-      const people = await resolveAudience(req.user!, { tags: body.tagIds, excludeTags: [] });
+      const people = await resolveAudience(req.user!, { tags: body.tagIds, excludeTags: [], emails: [] });
       matched = people.length;
       if (matched === 0) throw new AppError(400, "No active, non-suppressed contacts found for the selected tag(s)");
       tagged = people.map((person) => person.email);
@@ -180,7 +189,19 @@ templatesRouter.post(
     const invalid = recipients.find((email) => !isValidEmail(email));
     if (invalid) throw new AppError(400, `Enter a valid receiver email: ${invalid}`);
     const footer = await companyFooter();
-    const rendered = await renderDesign(template.designJson, footer);
+    const activeDesign = body.design ?? template.designJson;
+    const rendered = await renderDesign(activeDesign, footer);
+    if (body.design) {
+      await prisma.template.update({
+        where: { id: template.id },
+        data: {
+          designJson: rendered.design,
+          html: rendered.html,
+          textVersion: rendered.text,
+        },
+      });
+      await syncTemplateAssets(template.id, mediaFilesIn(rendered.html));
+    }
     const first = req.user!.name.split(" ")[0] || "there";
     const previewUnsub = `${config.trackingUrl}/u/preview`;
     const unsubscribe = rendered.html.includes("[[UNSUB]]");

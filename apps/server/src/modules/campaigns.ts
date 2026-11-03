@@ -8,7 +8,7 @@ import { pageParams, send } from "../http";
 import { audit } from "../lib/audit";
 import { assertSenderAccess, assertTeam, teamFilter } from "../lib/team";
 import { wrap } from "../middleware/error";
-import { audienceSchema, resolveAudience } from "../campaigns/audience";
+import { audienceSchema, countNewManualReceivers, ensureManualContacts, resolveAudience } from "../campaigns/audience";
 import { launchCampaign, loadCampaign } from "../campaigns/launch";
 import { precheckCampaign } from "../campaigns/precheck";
 import { parseCcEmails } from "../lib/email";
@@ -61,6 +61,7 @@ campaignsRouter.post(
     if (senders.length !== body.senderIds.length) throw new AppError(400, "One or more mailboxes were not found");
     if (senders.some((sender) => sender.teamId !== teamId)) throw new AppError(400, "Mailboxes must belong to the campaign team");
     for (const sender of senders) await assertSenderAccess(req.user!, sender.id, sender.teamId);
+    await ensureManualContacts(body.audience.emails);
     const campaign = await prisma.campaign.create({
       data: {
         teamId,
@@ -84,7 +85,7 @@ campaignsRouter.post(
   wrap(async (req, res) => {
     const audience = audienceSchema.parse(req.body);
     const people = await resolveAudience(req.user!, audience);
-    send(res, 200, { count: people.length });
+    send(res, 200, { count: people.length + (await countNewManualReceivers(audience.emails)) });
   }),
 );
 
@@ -102,6 +103,7 @@ campaignsRouter.put(
     const existing = await loadCampaign(BigInt(req.params.id), req.user!);
     if (existing.status !== "draft") throw new AppError(400, "Only drafts can be edited");
     const body = writeSchema.partial().parse(req.body);
+    if (body.audience) await ensureManualContacts(body.audience.emails);
     if (body.senderIds) {
       const senders = await prisma.senderAccount.findMany({ where: { id: { in: body.senderIds.map((id) => BigInt(id)) } } });
       if (senders.some((sender) => sender.teamId !== existing.teamId)) throw new AppError(400, "Mailboxes must belong to the campaign team");
@@ -258,21 +260,36 @@ campaignsRouter.get(
     const { page, take, skip } = pageParams(req);
     const rawStatus = String(req.query.status ?? "");
     const status = (["queued", "processing", "sent", "failed", "skipped"] as const).find((item) => item === rawStatus);
+    const search = String(req.query.search ?? "").trim();
     const where: Prisma.CampaignRecipientWhereInput = {
       campaignId: campaign.id,
-      ...(status ? { status } : {}),
+      ...(rawStatus === "remaining" ? { status: { in: ["queued", "processing"] } } : status ? { status } : {}),
+      ...(search ? { contact: { email: { contains: search } } } : {}),
     };
-    const [total, recipients] = await Promise.all([
+    const [total, recipients, grouped] = await Promise.all([
       prisma.campaignRecipient.count({ where }),
       prisma.campaignRecipient.findMany({
         where,
-        include: { contact: true, events: true },
-        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          status: true,
+          skipReason: true,
+          attempts: true,
+          nextAttemptAt: true,
+          lastError: true,
+          sentAt: true,
+          contact: { select: { email: true, firstName: true } },
+          sender: { select: { fromEmail: true } },
+        },
+        orderBy: rawStatus === "sent" ? { sentAt: "desc" } : { id: "asc" },
         skip,
         take,
       }),
+      prisma.campaignRecipient.groupBy({ by: ["status"], where: { campaignId: campaign.id }, _count: { _all: true } }),
     ]);
-    send(res, 200, { page, pageSize: take, total, recipients });
+    const counts = { queued: 0, processing: 0, sent: 0, failed: 0, skipped: 0 };
+    for (const row of grouped) counts[row.status] = row._count._all;
+    send(res, 200, { page, pageSize: take, total, counts, recipients });
   }),
 );
 

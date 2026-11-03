@@ -135,9 +135,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   markClean: () => set({ dirty: false }),
 }));
 
-export function addBlock(type: Block["type"], section: Section = "body"): void {
-  const block = blank(type, section);
+export function insertBlock(block: Block): void {
   useEditor.getState().change((draft) => {
+    const section = blockSection(block);
     const order = SECTION_ORDER[section];
     let insertAt = draft.blocks.length;
     const lastOfSection = draft.blocks.map((item, index) => ({ item, index })).filter(({ item }) => blockSection(item) === section).pop();
@@ -150,6 +150,11 @@ export function addBlock(type: Block["type"], section: Section = "body"): void {
     draft.blocks.splice(insertAt, 0, block);
   });
   useEditor.getState().select(block.id);
+}
+
+export function addBlock(type: Block["type"], section: Section = "body"): void {
+  const block = blank(type, section);
+  insertBlock(block);
 }
 
 export function designFromStore(): Design {

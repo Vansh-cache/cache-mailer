@@ -98,7 +98,10 @@ export function TemplatesPage() {
           <article key={template.id} className="panel p-4">
             <Link className="font-medium text-tide-700" to={`/templates/${template.id}`}>{template.name}</Link>
             <div className="mt-1 text-xs uppercase text-slate-500">{categoryLabel(template.category)} · {template.visibility} · {template.kind}</div>
-            <Button className="mt-3" variant="ghost" onClick={() => duplicate.mutate(template.id)}>Duplicate</Button>
+            <div className="mt-3 flex gap-2">
+              <Button variant="ghost" onClick={() => duplicate.mutate(template.id)}>Duplicate</Button>
+              <Button variant="ghost" onClick={() => navigate(`/campaigns/new?templateId=${template.id}`)}>Use in campaign</Button>
+            </div>
           </article>
         ))}
         {mine.length === 0 && <p className="text-sm text-slate-500">No templates of yours in this category yet. Use a starter above or create a blank email.</p>}

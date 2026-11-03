@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { useNavigate, useParams } from "react-router-dom";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { SendingQueue } from "../components/SendingQueue";
 import { Badge, Button, PageHeader, statusTone } from "../components/ui";
 import { api, downloadCsv } from "../lib/api";
 
@@ -13,17 +14,22 @@ export function CampaignReportPage() {
   const id = Number(useParams().id);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const campaign = useQuery({ queryKey: ["campaign", id], queryFn: () => api.campaign(id) });
-  const stats = useQuery({ queryKey: ["stats", id], queryFn: () => api.stats(id) });
+  const campaign = useQuery({
+    queryKey: ["campaign", id],
+    queryFn: () => api.campaign(id),
+    refetchInterval: (query) => (query.state.data?.campaign.status === "sending" ? 5000 : false),
+  });
+  const live = campaign.data?.campaign.status === "sending";
+  const stats = useQuery({ queryKey: ["stats", id], queryFn: () => api.stats(id), refetchInterval: live ? 15000 : false });
   const timeline = useQuery({ queryKey: ["timeline", id], queryFn: () => api.timeline(id) });
   const links = useQuery({ queryKey: ["links", id], queryFn: () => api.links(id) });
-  const recipients = useQuery({ queryKey: ["recipients", id], queryFn: () => api.recipients(id) });
   const action = useMutation({
     mutationFn: (name: "pause" | "resume" | "cancel") => api.campaignAction(id, name),
     onSuccess: async (_result, name) => {
       toast.success(name === "pause" ? "Campaign paused" : name === "resume" ? "Campaign resumed" : "Campaign cancelled");
       await queryClient.invalidateQueries({ queryKey: ["campaign", id] });
       await queryClient.invalidateQueries({ queryKey: ["stats", id] });
+      await queryClient.invalidateQueries({ queryKey: ["recipients", id] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -77,6 +83,7 @@ export function CampaignReportPage() {
           <span className="font-medium text-ink-900">CC on every mail:</span> {campaign.data.campaign.ccEmails}
         </p>
       )}
+      <SendingQueue campaignId={id} live={live} />
       <section className="panel mb-4 h-64 p-4">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={timeline.data?.points ?? []}>
@@ -89,22 +96,13 @@ export function CampaignReportPage() {
           </LineChart>
         </ResponsiveContainer>
       </section>
-      <div className="grid grid-cols-2 gap-4">
-        <section className="panel p-4 text-sm">
-          <h2 className="mb-2 font-medium">Links</h2>
-          {links.data?.links.map((link) => (
-            <div key={link.id} className="border-b border-slate-100 py-1">{link.original_url} · {Number(link.uniq)} unique</div>
-          ))}
-        </section>
-        <section className="panel p-4 text-sm">
-          <h2 className="mb-2 font-medium">Recipients</h2>
-          {recipients.data?.recipients.map((row) => (
-            <div key={row.id} className="flex justify-between border-b border-slate-100 py-1">
-              <span>{row.contact.email}</span><span>{row.status}</span>
-            </div>
-          ))}
-        </section>
-      </div>
+      <section className="panel p-4 text-sm">
+        <h2 className="mb-2 font-medium">Links</h2>
+        {links.data?.links.map((link) => (
+          <div key={link.id} className="border-b border-slate-100 py-1">{link.original_url} · {Number(link.uniq)} unique</div>
+        ))}
+        {links.data?.links.length === 0 && <p className="text-slate-500">No tracked links in this campaign.</p>}
+      </section>
     </div>
   );
 }

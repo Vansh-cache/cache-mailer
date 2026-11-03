@@ -20,6 +20,7 @@ import { templatesRouter } from "./modules/templates";
 import { teamsRouter, usersRouter } from "./modules/users";
 import { growthRouter } from "./modules/growth";
 import { zohoRouter } from "./modules/zoho";
+import { loadAssetImage } from "./storage/assets";
 
 export function buildApi() {
   const app = express();
@@ -38,6 +39,20 @@ export function buildApi() {
   app.use(cookieParser());
   app.use(express.json({ limit: "2mb" }));
   app.use("/media", express.static(config.uploadDir, { maxAge: "7d" }));
+  app.get("/media/:file", async (req, res, next) => {
+    try {
+      const file = req.params.file;
+      const image = /^[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|gif|webp)$/i.test(file) ? await loadAssetImage(file) : null;
+      if (!image) {
+        res.status(404).end();
+        return;
+      }
+      res.setHeader("Cache-Control", "public, max-age=604800");
+      res.type(image.mime).send(image.content);
+    } catch (error) {
+      next(error);
+    }
+  });
   app.use(ensureCsrf);
   app.use("/api", requireCsrf);
   app.use("/api", loadUser);
