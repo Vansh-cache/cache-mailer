@@ -54,15 +54,16 @@ function blockMjml(block: Block, sectionBg = "#ffffff"): string {
       const heading = block.overlayHeading?.trim();
       const overlayText = block.overlayText?.trim();
       if (heading || overlayText) {
-        // Banner mode: the image becomes the background of its own full-width
-        // section with the text on top. Clients that cannot show background
-        // images (Outlook desktop) fall back to the solid colour instead.
+        // Banner mode: a real <img> with the words on a colour band right under
+        // it. Background images are not used because Gmail drops inline (CID)
+        // backgrounds and Outlook desktop ignores CSS backgrounds entirely.
         const color = attr(block.overlayColor?.trim() || "#ffffff");
         const bg = attr(block.overlayBg?.trim() || "#0f766e");
-        return `</mj-column></mj-section><mj-section background-url="${attr(publicImageSrc(block.src))}" background-size="cover" background-repeat="no-repeat" background-color="${bg}" padding="36px 24px">
+        return `</mj-column></mj-section><mj-section background-color="${bg}" padding="0">
       <mj-column>
-        ${heading ? `<mj-text align="${block.align}" color="${color}" font-size="26px" line-height="32px" padding="0"><strong>${escapeHtml(heading)}</strong></mj-text>` : ""}
-        ${overlayText ? `<mj-text align="${block.align}" color="${color}" font-size="16px" line-height="24px" padding="6px 0 0">${escapeHtml(overlayText)}</mj-text>` : ""}
+        <mj-image src="${attr(publicImageSrc(block.src))}" alt="${attr(heading || block.alt)}" padding="0"${href ? ` href="${attr(href)}"` : ""} />
+        ${heading ? `<mj-text align="${block.align}" color="${color}" font-size="26px" line-height="32px" padding="${overlayText ? "22px 24px 0" : "22px 24px"}"><strong>${escapeHtml(heading)}</strong></mj-text>` : ""}
+        ${overlayText ? `<mj-text align="${block.align}" color="${color}" font-size="16px" line-height="24px" padding="${heading ? "6px 24px 22px" : "22px 24px"}">${escapeHtml(overlayText)}</mj-text>` : ""}
       </mj-column>
     </mj-section><mj-section background-color="${attr(sectionBg)}" padding="0">
       <mj-column>`;

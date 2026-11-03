@@ -152,7 +152,7 @@ growthRouter.post(
       slug: z.string().min(1).max(60).regex(/^[a-z0-9-]+$/),
       detail: z.string().max(500).default(""),
       tagName: z.string().min(1).max(80),
-      assetUrl: z.string().url().max(2000),
+      assetUrl: z.string().url().max(2000).refine((value) => /^https?:\/\//i.test(value), "Link must start with http:// or https://"),
       teamId: z.number().int().positive().optional(),
     }).parse(req.body);
     const teamId = req.user!.role === "admin" ? (body.teamId ?? req.user!.teamId) : req.user!.teamId;

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Block, Design, Section } from "../lib/api";
+import { api, type Block, type Design, type Section } from "../lib/api";
 import { uid } from "../lib/uid";
 
 export const SECTION_ORDER: Record<Section, number> = { header: 0, body: 1, footer: 2 };
@@ -33,13 +33,15 @@ type EditorState = {
   past: Snap[];
   future: Snap[];
   dirty: boolean;
+  revision: number;
   load: (name: string, design: Design) => void;
   select: (id: string | null) => void;
   setName: (name: string) => void;
   change: (recipe: (draft: { settings: Design["settings"]; blocks: Block[] }) => void) => void;
   undo: () => void;
   redo: () => void;
-  markClean: () => void;
+  /** Marks the editor clean only if nothing changed since `revision` was sent to the server. */
+  markSaved: (revision: number) => void;
 };
 
 export function blank(type: Block["type"], section: Section = "body"): Block {
@@ -83,6 +85,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   past: [],
   future: [],
   dirty: false,
+  revision: 0,
   load: (name, design) => {
     const blocks = sortBySection(design.blocks.map((block) => ({ ...block, section: blockSection(block) })));
     set({
@@ -94,22 +97,23 @@ export const useEditor = create<EditorState>((set, get) => ({
       past: [],
       future: [],
       dirty: false,
+      revision: 0,
     });
   },
   select: (selectedId) => {
     const block = get().blocks.find((item) => item.id === selectedId);
     set({ selectedId, ...(block ? { activeSection: blockSection(block) } : {}) });
   },
-  setName: (name) => set({ name, dirty: true }),
+  setName: (name) => set((state) => ({ name, dirty: true, revision: state.revision + 1 })),
   change: (recipe) => {
     const current = get();
     const past = [...current.past, { settings: clone(current.settings), blocks: clone(current.blocks) }].slice(-50);
     const draft = { settings: clone(current.settings), blocks: clone(current.blocks) };
     recipe(draft);
-    set({ ...draft, past, future: [], dirty: true });
+    set({ ...draft, past, future: [], dirty: true, revision: current.revision + 1 });
   },
   undo: () => {
-    const { past, future, settings, blocks } = get();
+    const { past, future, settings, blocks, revision } = get();
     const previous = past[past.length - 1];
     if (!previous) return;
     set({
@@ -118,10 +122,11 @@ export const useEditor = create<EditorState>((set, get) => ({
       past: past.slice(0, -1),
       future: [...future, { settings, blocks }],
       dirty: true,
+      revision: revision + 1,
     });
   },
   redo: () => {
-    const { past, future, settings, blocks } = get();
+    const { past, future, settings, blocks, revision } = get();
     const next = future[future.length - 1];
     if (!next) return;
     set({
@@ -130,10 +135,18 @@ export const useEditor = create<EditorState>((set, get) => ({
       future: future.slice(0, -1),
       past: [...past, { settings, blocks }],
       dirty: true,
+      revision: revision + 1,
     });
   },
-  markClean: () => set({ dirty: false }),
+  markSaved: (revision) => set((state) => (state.revision === revision ? { dirty: false } : {})),
 }));
+
+/** Saves the current draft; edits made while the request is in flight stay unsaved. */
+export async function saveDraft(templateId: number): Promise<void> {
+  const { name, revision } = useEditor.getState();
+  await api.saveTemplate(templateId, { name, design: designFromStore() });
+  useEditor.getState().markSaved(revision);
+}
 
 export function insertBlock(block: Block): void {
   useEditor.getState().change((draft) => {

@@ -1,7 +1,11 @@
 import { companyFooter } from "../lib/settings";
 import type { AuthUser } from "../types";
+import { embedUploadedImages } from "../render/embed-images";
 import { renderDesign } from "../render/email";
 import { audienceSchema, resolveAudience } from "./audience";
+
+// Graph sendMail requests are capped at 4 MB and base64 adds ~33%.
+const GRAPH_IMAGE_BUDGET = 2.8 * 1024 * 1024;
 
 export type Precheck = { ok: boolean; checks: { id: string; ok: boolean; detail: string }[]; audienceCount: number };
 
@@ -11,7 +15,7 @@ type CampaignShape = {
   teamId: number;
   audience: unknown;
   template: { designJson: unknown };
-  senders: { sender: { status: string; teamId: number; fromEmail: string } }[];
+  senders: { sender: { status: string; teamId: number; fromEmail: string; provider: string } }[];
 };
 
 export async function precheckCampaign(campaign: CampaignShape, user: AuthUser): Promise<Precheck> {
@@ -30,8 +34,29 @@ export async function precheckCampaign(campaign: CampaignShape, user: AuthUser):
   });
   let unsubOk = false;
   let unsubDetail = "The email could not be rendered";
+  let imagesOk = false;
+  let imagesDetail = "The email could not be rendered";
   try {
     const html = await renderDesign(campaign.template.designJson, footer);
+    if (html.design.settings.compose === "plain") {
+      imagesOk = true;
+      imagesDetail = "Plain-text email, no images";
+    } else {
+      const { report } = await embedUploadedImages(html.html);
+      imagesOk = report.missing.length === 0;
+      const size = `${(report.totalBytes / 1024 / 1024).toFixed(1)} MB`;
+      const usesGraph = campaign.senders.some((row) => row.sender.provider === "graph");
+      if (imagesOk && usesGraph && report.totalBytes > GRAPH_IMAGE_BUDGET) {
+        imagesOk = false;
+        imagesDetail = `Images total ${size}; Microsoft 365 rejects messages over ~4 MB. Use smaller images.`;
+      } else {
+        imagesDetail = imagesOk
+          ? report.total === 0
+            ? "No images in this email"
+            : `All ${report.total} image${report.total === 1 ? "" : "s"} will be attached inside the email (${size})`
+          : `Fix or replace these images before sending: ${report.missing.join(", ")}`;
+      }
+    }
     if (!html.design.settings.includeUnsubscribe) {
       unsubOk = true;
       unsubDetail = "Unsubscribe link is off";
@@ -47,6 +72,7 @@ export async function precheckCampaign(campaign: CampaignShape, user: AuthUser):
     ok: unsubOk,
     detail: unsubDetail,
   });
+  checks.push({ id: "images", ok: imagesOk, detail: imagesDetail });
   const active = campaign.senders.filter((row) => row.sender.status === "active" && row.sender.teamId === campaign.teamId);
   checks.push({
     id: "mailbox",

@@ -16,7 +16,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Button, inputClass } from "../components/ui";
 import { api, mediaPath, type Block, type Section } from "../lib/api";
 import { uid } from "../lib/uid";
-import { addBlock, blockSection, designFromStore, insertBlock, useEditor } from "../store/editor";
+import { addBlock, blockSection, designFromStore, insertBlock, saveDraft, useEditor } from "../store/editor";
 
 const compactInput = "h-9 rounded-lg border border-slate-300 bg-white px-2.5 text-[13px] text-ink-900 shadow-sm transition placeholder:text-slate-400 focus:border-tide-600 focus:ring-2 focus:ring-tide-600/20";
 const toolbarButton = "inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] font-medium text-slate-700 shadow-sm transition hover:border-tide-600 hover:text-tide-700 disabled:cursor-not-allowed disabled:opacity-40";
@@ -26,7 +26,7 @@ export function EditorPage() {
   const id = Number(params.id);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const template = useQuery({ queryKey: ["template", id], queryFn: () => api.template(id) });
+  const template = useQuery({ queryKey: ["template", id], queryFn: () => api.template(id), refetchOnWindowFocus: false });
   const load = useEditor((state) => state.load);
   const dirty = useEditor((state) => state.dirty);
   const canUndo = useEditor((state) => state.past.length > 0);
@@ -34,25 +34,44 @@ export function EditorPage() {
   const name = useEditor((state) => state.name);
   const compose = useEditor((state) => state.settings.compose ?? "blocks");
   const [mode, setMode] = useState<"view" | "edit">("view");
+  const [loadedId, setLoadedId] = useState<number | null>(null);
+  const loadedRef = useRef<number | null>(null);
   useEffect(() => {
-    if (template.data) load(template.data.template.name, template.data.template.designJson);
-  }, [template.data, load]);
+    // Load once per template: a background refetch must never overwrite unsaved edits.
+    if (template.data && loadedRef.current !== id) {
+      load(template.data.template.name, template.data.template.designJson);
+      loadedRef.current = id;
+      setLoadedId(id);
+    }
+  }, [template.data, load, id]);
+  const hasUnsaved = () => loadedRef.current === id && useEditor.getState().dirty;
   const save = useMutation({
-    mutationFn: () => api.saveTemplate(id, { name: useEditor.getState().name, design: designFromStore() }),
-    onSuccess: async () => {
-      useEditor.getState().markClean();
-      toast.success("Saved");
-      await queryClient.invalidateQueries({ queryKey: ["template", id] });
+    mutationFn: (_options: { silent?: boolean } = {}) => saveDraft(id),
+    onSuccess: async (_result, options) => {
+      if (!options.silent) toast.success("Template saved");
+      await queryClient.invalidateQueries({ queryKey: ["templates"] });
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(`Not saved: ${error.message}`),
   });
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const hasUnsavedRef = useRef(hasUnsaved);
+  hasUnsavedRef.current = hasUnsaved;
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (useEditor.getState().dirty) save.mutate();
+      if (hasUnsavedRef.current() && !saveRef.current.isPending) saveRef.current.mutate({ silent: true });
     }, 30_000);
-    return () => window.clearInterval(timer);
-  }, [save]);
-  if (!template.data) return <div className="grid h-[calc(100vh-3rem)] place-items-center rounded-2xl border border-slate-200 bg-white text-sm text-slate-500 shadow-sm">Loading editor...</div>;
+    const warn = (event: BeforeUnloadEvent) => {
+      if (hasUnsavedRef.current()) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("beforeunload", warn);
+      if (loadedRef.current === id && useEditor.getState().dirty) saveDraft(id).catch((error: Error) => toast.error(`Not saved: ${error.message}`));
+    };
+  }, [id]);
+  if (!template.data || loadedId !== id) return <div className="grid h-[calc(100vh-3rem)] place-items-center rounded-2xl border border-slate-200 bg-white text-sm text-slate-500 shadow-sm">Loading editor...</div>;
   const nameInput = (
     <input
       className="h-9 min-w-40 flex-1 rounded-lg border border-transparent bg-transparent px-2 text-sm font-semibold text-ink-950 transition placeholder:text-slate-400 hover:border-slate-200 focus:border-tide-600 focus:bg-white focus:ring-2 focus:ring-tide-600/20 sm:max-w-xs"
@@ -62,29 +81,38 @@ export function EditorPage() {
       placeholder="Template name"
     />
   );
+  const saveFailed = save.isError && dirty;
+  const statusTone = save.isPending ? "text-slate-500" : dirty ? "text-amber-600" : "text-emerald-600";
   const statusDot = (
-    <span className={`hidden items-center gap-1.5 text-xs font-medium lg:inline-flex ${dirty ? "text-amber-600" : "text-emerald-600"}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${dirty ? "bg-amber-500" : "bg-emerald-500"}`} />
-      {dirty ? "Unsaved changes" : "Saved"}
+    <span className={`hidden items-center gap-1.5 text-xs font-medium lg:inline-flex ${saveFailed ? "text-red-600" : statusTone}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${saveFailed ? "bg-red-500" : save.isPending ? "bg-slate-400" : dirty ? "bg-amber-500" : "bg-emerald-500"}`} />
+      {save.isPending ? "Saving..." : saveFailed ? "Save failed - not saved" : dirty ? "Unsaved changes" : "All changes saved"}
     </span>
   );
-  const useInCampaign = async () => {
+  const saveIfNeeded = async (): Promise<boolean> => {
+    if (!useEditor.getState().dirty) return true;
     try {
-      if (useEditor.getState().dirty) await save.mutateAsync();
-      navigate(`/campaigns/new?templateId=${id}`);
+      await save.mutateAsync({ silent: true });
+      return true;
     } catch {
-      // save's onError already showed the reason
+      return false;
     }
   };
+  const leaveEditMode = async () => {
+    if (await saveIfNeeded()) setMode("view");
+  };
+  const useInCampaign = async () => {
+    if (await saveIfNeeded()) navigate(`/campaigns/new?templateId=${id}`);
+  };
   const saveButton = (
-    <>
-      <Button className="h-8 rounded-lg px-3.5 py-0 text-[13px] shadow-sm" onClick={() => save.mutate()} disabled={save.isPending}>
-        {dirty ? "Save" : <span className="inline-flex items-center gap-1"><Check size={14} /> Saved</span>}
-      </Button>
-      <button type="button" className={toolbarButton} onClick={useInCampaign} disabled={save.isPending} title="Save this template and start a campaign with it">
-        <Send size={14} /> {dirty ? "Save & use in campaign" : "Use in campaign"}
-      </button>
-    </>
+    <Button className="h-8 rounded-lg px-3.5 py-0 text-[13px] shadow-sm" onClick={() => save.mutate({})} disabled={save.isPending || !dirty}>
+      {save.isPending ? "Saving..." : dirty ? "Save" : <span className="inline-flex items-center gap-1"><Check size={14} /> Saved</span>}
+    </Button>
+  );
+  const useInCampaignButton = (
+    <button type="button" className={toolbarButton} onClick={useInCampaign} disabled={save.isPending} title="Start a campaign with this template">
+      <Send size={14} /> Use in campaign
+    </button>
   );
   const composeToggle = (
     <button
@@ -104,13 +132,11 @@ export function EditorPage() {
             <button type="button" className={`${toolbarButton} w-8 px-0`} onClick={() => navigate("/templates")} title="Back to Email Templates" aria-label="Back to Email Templates">
               <ArrowLeft size={15} />
             </button>
-            {nameInput}
-            {statusDot}
+            <h1 className="min-w-40 truncate px-2 text-sm font-semibold text-ink-950 sm:max-w-xs" title={name}>{name || "Untitled"}</h1>
             <div className="mx-1 hidden h-6 w-px bg-slate-200 sm:block" />
             <PreviewButton />
-            {composeToggle}
             <div className="ml-auto flex items-center gap-1.5">
-              {saveButton}
+              {useInCampaignButton}
               <Button className="h-8 rounded-lg px-4 py-0 text-[13px] shadow-sm" onClick={() => setMode("edit")}>
                 <span className="inline-flex items-center gap-1.5"><Pencil size={14} /> Edit</span>
               </Button>
@@ -120,7 +146,7 @@ export function EditorPage() {
         </header>
       ) : (
         <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-1.5 rounded-2xl border border-slate-200/80 bg-white px-3 py-2 shadow-[0_8px_30px_rgba(15,23,42,0.06)]">
-          <button type="button" className={toolbarButton} onClick={() => setMode("view")} title="Back to template view" aria-label="Back to template view">
+          <button type="button" className={toolbarButton} onClick={leaveEditMode} disabled={save.isPending} title="Save and go back to template view" aria-label="Back to template view">
             <ArrowLeft size={14} /> Back
           </button>
           {nameInput}
@@ -135,7 +161,10 @@ export function EditorPage() {
           </button>
           <PreviewButton />
           {composeToggle}
-          <div className="ml-auto">{saveButton}</div>
+          <div className="ml-auto flex items-center gap-1.5">
+            {useInCampaignButton}
+            {saveButton}
+          </div>
         </header>
       )}
       <EditorBody mode={mode} />
@@ -236,11 +265,7 @@ function EditPanel() {
         align: "center",
       };
       insertBlock(newBlock);
-      if (templateId) {
-        await api.saveTemplate(templateId, { name: useEditor.getState().name, design: designFromStore() });
-        useEditor.getState().markClean();
-        await queryClient.invalidateQueries({ queryKey: ["template", templateId] });
-      }
+      if (templateId) await saveDraft(templateId);
       await queryClient.invalidateQueries({ queryKey: ["assets"] });
       toast.success("Asset saved on server & stored in template body");
     } catch (error) {
@@ -654,9 +679,9 @@ function BlockView({ block, editing = false }: { block: Block; editing?: boolean
       const overlayText = block.overlayText?.trim();
       if (heading || overlayText) {
         return (
-          <div className="relative overflow-hidden" style={{ background: block.overlayBg || "#0f766e", textAlign: block.align }}>
-            <img src={mediaPath(block.src)} alt={block.alt} className="absolute inset-0 h-full w-full object-cover" />
-            <div className="relative px-6 py-9" style={{ color: block.overlayColor || "#ffffff" }}>
+          <div className="overflow-hidden" style={{ background: block.overlayBg || "#0f766e", textAlign: block.align }}>
+            <img src={mediaPath(block.src)} alt={block.alt} className="block w-full" />
+            <div className="px-6 py-5" style={{ color: block.overlayColor || "#ffffff" }}>
               {editing ? (
                 <>
                   <p className="text-[26px] font-bold leading-8">
@@ -861,11 +886,7 @@ function BlockSettings({ block }: { block: Block }) {
               try {
                 const uploaded = await api.upload(file);
                 patch((current) => { if (current.type === "image") current.src = uploaded.asset.url; });
-                if (templateId) {
-                  await api.saveTemplate(templateId, { name: useEditor.getState().name, design: designFromStore() });
-                  useEditor.getState().markClean();
-                  await queryClient.invalidateQueries({ queryKey: ["template", templateId] });
-                }
+                if (templateId) await saveDraft(templateId);
                 await queryClient.invalidateQueries({ queryKey: ["assets"] });
                 toast.success("Asset saved on server & stored in template body");
               } catch (error) {
@@ -880,12 +901,10 @@ function BlockSettings({ block }: { block: Block }) {
               patch((current) => { if (current.type === "image") current.src = url; });
               if (templateId) {
                 try {
-                  await api.saveTemplate(templateId, { name: useEditor.getState().name, design: designFromStore() });
-                  useEditor.getState().markClean();
-                  await queryClient.invalidateQueries({ queryKey: ["template", templateId] });
+                  await saveDraft(templateId);
                   toast.success("Asset applied & stored in template body");
-                } catch {
-                  // Editor marked dirty so autosave/manual save can persist
+                } catch (error) {
+                  toast.error(`Image applied but not saved: ${error instanceof Error ? error.message : "save failed"}`);
                 }
               }
             }} />
@@ -1291,7 +1310,6 @@ function TagPicker({
 }
 
 function TestSend({ templateId }: { templateId: number }) {
-  const queryClient = useQueryClient();
   const senders = useQuery({ queryKey: ["senders"], queryFn: api.senders });
   const contacts = useQuery({ queryKey: ["test-receivers"], queryFn: () => api.contacts("?pageSize=100") });
   const tags = useQuery({ queryKey: ["tags"], queryFn: api.tags });
@@ -1301,11 +1319,7 @@ function TestSend({ templateId }: { templateId: number }) {
   const send = useMutation({
     mutationFn: async () => {
       const design = designFromStore();
-      if (useEditor.getState().dirty) {
-        await api.saveTemplate(templateId, { name: useEditor.getState().name, design });
-        useEditor.getState().markClean();
-        await queryClient.invalidateQueries({ queryKey: ["template", templateId] });
-      }
+      if (useEditor.getState().dirty) await saveDraft(templateId);
       return api.testSend(templateId, senderId, receiver, tagIds, design);
     },
     onSuccess: (result) => toast.success(

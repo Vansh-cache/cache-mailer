@@ -1,3 +1,5 @@
+import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
@@ -14,6 +16,12 @@ import { wrap } from "../middleware/error";
 export const authRouter = Router();
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+
+let cachedDummyHash: Promise<string> | null = null;
+function dummyHash(): Promise<string> {
+  cachedDummyHash ??= bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
+  return cachedDummyHash;
+}
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -70,9 +78,11 @@ authRouter.post(
       throw new AppError(429, "Too many failed logins. Try again in 15 minutes.");
     }
     const user = await prisma.user.findUnique({ where: { email }, include: { team: true } });
-    const match = user ? await verifyPassword(body.password, user.passwordHash) : false;
+    // Always run bcrypt so response time does not reveal whether the email exists.
+    const match = await verifyPassword(body.password, user?.passwordHash ?? (await dummyHash()));
+    if (!user) await audit(null, "login_failed", "user", null, { email });
     if (!user || !match || !user.isActive) {
-      await audit(user?.id ?? null, "login_failed", "user", user?.id ?? null, { email });
+      if (user) await audit(user.id, "login_failed", "user", user.id, { email });
       throw new AppError(401, "Invalid email or password");
     }
     const token = signSession({ sub: String(user.id), role: user.role, teamId: user.teamId });

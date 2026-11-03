@@ -120,6 +120,7 @@ model User {
   teamId       Int?      @map("team_id") @db.UnsignedTinyInt
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at") @db.DateTime(0)
+  passwordChangedAt DateTime? @map("password_changed_at") @db.DateTime(0)
   createdAt    DateTime  @default(now()) @map("created_at") @db.DateTime(0)
   team         Team?     @relation(fields: [teamId], references: [id])
   templates    Template[]

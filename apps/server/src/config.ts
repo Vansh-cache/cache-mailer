@@ -33,18 +33,40 @@ if (!/^[0-9a-fA-F]{64}$/.test(encryptionKeyHex)) {
 }
 
 const nodeEnv = process.env.NODE_ENV ?? "development";
+const isProduction = nodeEnv === "production";
 const jwtSecret = required("JWT_SECRET");
-if (nodeEnv === "production" && jwtSecret.includes("dev-only")) {
-  throw new Error("Refusing to start with the development JWT secret");
+if (/[<>]/.test(jwtSecret)) throw new Error("JWT_SECRET still holds the .env.example placeholder");
+if (isProduction && (/dev-only|change[-_ ]?this|secret/i.test(jwtSecret) || jwtSecret.length < 32)) {
+  throw new Error("Refusing to start: JWT_SECRET must be a random value of at least 32 characters");
 }
-if (nodeEnv === "production" && jwtSecret.length < 32) {
-  throw new Error("Refusing to start with a JWT secret shorter than 32 characters");
+if (isProduction && (/^(.)\1+$/.test(encryptionKeyHex) || /0123456789abcdef0123456789abcdef/i.test(encryptionKeyHex))) {
+  throw new Error("Refusing to start with a placeholder ENCRYPTION_KEY");
 }
-if (
-  nodeEnv === "production" &&
-  encryptionKeyHex.toLowerCase() === "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-) {
-  throw new Error("Refusing to start with the example ENCRYPTION_KEY from .env.example");
+
+const WEAK_DB_PASSWORDS = new Set(["", "root", "mailer", "password", "admin", "123456", "changeme"]);
+
+function assertProductionConfig(urls: Record<string, string>, databaseUrl: string): void {
+  for (const [name, value] of Object.entries(urls)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new Error(`${name} must be an absolute URL`);
+    }
+    if (parsed.protocol !== "https:") throw new Error(`${name} must use https in production`);
+    if (/^(localhost|127\.|0\.0\.0\.0|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(parsed.hostname)) {
+      throw new Error(`${name} must be a public host in production (receivers and browsers cannot reach ${parsed.hostname})`);
+    }
+  }
+  let password = "";
+  try {
+    password = decodeURIComponent(new URL(databaseUrl).password);
+  } catch {
+    throw new Error("DATABASE_URL is not a valid URL");
+  }
+  if (WEAK_DB_PASSWORDS.has(password.toLowerCase()) || password.length < 12 || /[<>]/.test(password)) {
+    throw new Error("Refusing to start: the database password in DATABASE_URL is missing, a placeholder, or too weak");
+  }
 }
 
 function resolveDir(envName: string, fallback: string): string {
@@ -79,6 +101,13 @@ export const config = {
   sendDelayMaxMs: Number(process.env.SEND_DELAY_MAX_MS ?? (nodeEnv === "production" ? 8000 : 0)),
   workerId: optional("WORKER_ID") || `worker-${process.pid}`,
 };
+
+if (isProduction) {
+  assertProductionConfig(
+    { APP_URL: config.appUrl, TRACKING_URL: config.trackingUrl, MEDIA_URL: config.mediaUrl },
+    config.databaseUrl,
+  );
+}
 
 export function graphConfigured(): boolean {
   return Boolean(config.msTenantId && config.msClientId && config.msClientSecret);

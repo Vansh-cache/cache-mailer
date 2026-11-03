@@ -5,6 +5,15 @@ import { renderDesign } from "../src/render/email";
 
 const prisma = new PrismaClient();
 
+function assertStrongPassword(password: string): void {
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((pattern) => pattern.test(password)).length;
+  if (password.length < 14 || classes < 3) {
+    throw new Error(
+      "Set SEED_ADMIN_PASSWORD to at least 14 characters using 3 of: lowercase, uppercase, digits, symbols",
+    );
+  }
+}
+
 function design(html: string, button?: { label: string; href: string }): Design {
   const base = emptyDesign();
   base.blocks = [
@@ -33,11 +42,16 @@ async function main() {
   }
   // Bootstrap admin only. No demo or team user accounts are seeded — the
   // bootstrap admin creates real users from the Users page after sign-in.
-  // Override both values with SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD in .env,
-  // and change the bootstrap password immediately after the first sign-in.
-  const password = process.env.SEED_ADMIN_PASSWORD ?? "Qwe@123";
-  const adminEmail = (process.env.SEED_ADMIN_EMAIL ?? "admin@mailer.com").toLowerCase();
-  const passwordHash = await bcrypt.hash(password, 12);
+  // There is deliberately no default password: both values must come from the
+  // environment, and the password should be rotated after the first sign-in.
+  const password = process.env.SEED_ADMIN_PASSWORD ?? "";
+  const adminEmail = (process.env.SEED_ADMIN_EMAIL ?? "").trim().toLowerCase();
+  if (!adminEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) {
+    throw new Error("Set SEED_ADMIN_EMAIL to the bootstrap admin's email address");
+  }
+  const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
+  if (!existingAdmin) assertStrongPassword(password);
+  const passwordHash = existingAdmin?.passwordHash ?? (await bcrypt.hash(password, 12));
 
   await prisma.team.upsert({ where: { name: "Sales" }, update: {}, create: { name: "Sales" } });
   await prisma.team.upsert({ where: { name: "Marketing" }, update: {}, create: { name: "Marketing" } });
@@ -99,7 +113,7 @@ async function main() {
       },
     });
   }
-  console.log(`Seeded teams and starter templates. Bootstrap admin: ${adminEmail} (password from SEED_ADMIN_PASSWORD — change it after first sign-in).`);
+  console.log(`Seeded teams and starter templates. Bootstrap admin: ${adminEmail} (password from SEED_ADMIN_PASSWORD; remove it from .env and change it after first sign-in).`);
 }
 
 main()

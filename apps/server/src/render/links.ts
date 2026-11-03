@@ -11,13 +11,15 @@ export function extractLinks(html: string): string[] {
   return [...found];
 }
 
+// Only href values are rewritten: a plain text replace would also hit image
+// src URLs that share a prefix with a link and break those images.
 export function applyLinkMap(html: string, map: Map<string, string>): string {
-  const entries = [...map.entries()].sort((a, b) => b[0].length - a[0].length);
-  let out = html;
-  for (const [original, tracked] of entries) {
-    out = out.split(original).join(tracked);
-  }
-  return out;
+  if (map.size === 0) return html;
+  return html.replace(HREF, (whole, quote: string, value: string) => {
+    const tracked = map.get(value.trim());
+    if (!tracked) return whole;
+    return whole.replace(`${quote}${value}${quote}`, `${quote}${tracked}${quote}`);
+  });
 }
 
 export function appendUtm(url: string, campaignName: string): string {

@@ -11,7 +11,7 @@ import path from "node:path";
 import { personalize, personalizeHtml } from "../src/render/personalize";
 import { publicImageSrc } from "../src/render/email";
 import { embedUploadedImages } from "../src/render/embed-images";
-import { buildMime } from "../src/providers/mime";
+import { isPrivateAddress } from "../src/storage/remote-image";
 import { config } from "../src/config";
 import { emptyDesign } from "../src/render/design";
 import { renderDesign } from "../src/render/email";
@@ -197,6 +197,53 @@ test("segment rules combine tag and company", () => {
   };
   assert.equal(matchesRules(contact, rules), true);
   assert.equal(matchesRules({ ...contact, company: "Food" }, rules), false);
+});
+
+test("link tracking rewrites hrefs only, never image src sharing the same prefix", () => {
+  const html = '<a href="https://brand.example">Visit</a><img src="https://brand.example/logo.png" />';
+  const rewritten = applyLinkMap(html, new Map([["https://brand.example", "https://track/c/t/1"]]));
+  assert.match(rewritten, /href="https:\/\/track\/c\/t\/1"/);
+  assert.match(rewritten, /src="https:\/\/brand\.example\/logo\.png"/);
+});
+
+test("banner renders the picture as a real img (no background image) with the words below it", async () => {
+  const rendered = await renderDesign(
+    {
+      version: 1,
+      settings: { outerBg: "#f3f4f6", contentBg: "#ffffff", width: 600, fontFamily: "Arial", baseFontSize: 16, textColor: "#1f2937", linkColor: "#0f766e" },
+      blocks: [{ id: "b", type: "image", src: "/media/banner.png", alt: "", width: "100%", align: "center", overlayHeading: "Big Launch" }],
+    },
+    { company: "Cachedigitech", address: "New Delhi" },
+  );
+  assert.match(rendered.html, new RegExp(`<img[^>]+src="${config.mediaUrl}/banner\\.png"`));
+  assert.ok(!/background(-image)?\s*[:=][^;>]*banner\.png/i.test(rendered.html));
+  assert.ok(rendered.html.indexOf("banner.png") < rendered.html.indexOf("<strong>Big Launch</strong>"));
+});
+
+test("webp uploads are converted for Outlook, the open pixel stays remote, internal URLs are refused", async () => {
+  const sharp = (await import("sharp")).default;
+  const webp = await sharp({ create: { width: 8, height: 8, channels: 3, background: "#0f766e" } }).webp().toBuffer();
+  const fileName = "fedcba9876543210fedcba9876543210.webp";
+  const filePath = path.join(config.uploadDir, fileName);
+  await fs.promises.writeFile(filePath, webp);
+  try {
+    const pixel = `${config.trackingUrl}/o/abc.gif`;
+    const html = `<img src="${config.mediaUrl}/${fileName}" /><img src="${pixel}" /><img src="http://127.0.0.1:9/secret.png" />`;
+    const result = await embedUploadedImages(html);
+    assert.equal(result.attachments.length, 1);
+    assert.equal(result.attachments[0]?.contentType, "image/jpeg");
+    assert.ok(result.html.includes(`src="${pixel}"`));
+    assert.deepEqual(result.report.missing, ["http://127.0.0.1:9/secret.png"]);
+  } finally {
+    await fs.promises.unlink(filePath).catch(() => undefined);
+  }
+});
+
+test("private and loopback addresses are never fetched", () => {
+  for (const ip of ["127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.169.254", "::1", "fd00::1", "::ffff:10.0.0.1"]) {
+    assert.equal(isPrivateAddress(ip), true, ip);
+  }
+  assert.equal(isPrivateAddress("8.8.8.8"), false);
 });
 
 test("retry backoff stops after four attempts", () => {

@@ -117,9 +117,20 @@ export async function sendRecipient(id: bigint): Promise<void> {
 
   const unsubscribe = (row.campaign.htmlSnapshot ?? "").includes("[[UNSUB]]");
   const text = personalize(row.campaign.textSnapshot ?? "", fields).split("[[UNSUB]]").join(unsub);
-  // Embed server-saved images inside the message so they show for every
-  // receiver, even when the public media URL is unreachable from their network.
-  const embedded = row.campaign.sendFormat === "plain" ? { html, attachments: [] } : await embedUploadedImages(html);
+  const embedded = row.campaign.sendFormat === "plain" ? { html, attachments: [], report: null } : await embedUploadedImages(html);
+  if (embedded.report && embedded.report.missing.length > 0) {
+    const attempt = row.attempts + 1;
+    const delay = backoffMs(attempt);
+    const lastError = `Image could not be embedded: ${embedded.report.missing.join(", ")}`.slice(0, 500);
+    await prisma.campaignRecipient.update({
+      where: { id: row.id },
+      data: delay == null
+        ? { status: "failed", attempts: attempt, lastError, lockedBy: null, lockedUntil: null }
+        : { status: "queued", attempts: attempt, nextAttemptAt: new Date(Date.now() + delay), lastError, lockedBy: null, lockedUntil: null },
+    });
+    logger.warn({ id: row.id, missing: embedded.report.missing }, "send held back: image missing");
+    return;
+  }
   let cc: string[] = [];
   try {
     cc = parseCcEmails(row.campaign.ccEmails).filter((email) => email !== row.contact.email);

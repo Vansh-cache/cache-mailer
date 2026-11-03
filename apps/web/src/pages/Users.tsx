@@ -11,7 +11,7 @@ const schema = z
   .object({
     name: z.string().min(1, "Enter a name"),
     email: z.string().email("Enter a valid email"),
-    password: z.string().min(10, "Password must be at least 10 characters"),
+    password: z.string().min(12, "Password must be at least 12 characters"),
     role: z.enum(["admin", "marketing", "sales"]),
     teamId: z.coerce.number().int().positive().optional().or(z.literal("")),
     senderIds: z.array(z.number().int().positive()).default([]),
@@ -116,10 +116,10 @@ export function UsersPage() {
     onError: (error: Error) => toast.error(error.message),
   });
   const askResetPassword = (user: User) => {
-    const password = window.prompt(`Set a new password for ${user.email} (at least 10 characters)`);
+    const password = window.prompt(`Set a new password for ${user.email} (at least 12 characters)`);
     if (!password) return;
-    if (password.length < 10) {
-      toast.error("Password must be at least 10 characters");
+    if (password.length < 12) {
+      toast.error("Password must be at least 12 characters");
       return;
     }
     resetPassword.mutate({ id: user.id, password });
@@ -269,8 +269,8 @@ function EditUserDialog({
             toast.error("Choose a team for Marketing and Sales users");
             return;
           }
-          if (password.trim() && password.trim().length < 10) {
-            toast.error("Password must be at least 10 characters");
+          if (password.trim() && password.trim().length < 12) {
+            toast.error("Password must be at least 12 characters");
             return;
           }
           save.mutate();

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "../db";
 import { AppError } from "../errors";
 import { audit } from "../lib/audit";
-import { hashPassword } from "../lib/password";
+import { MIN_PASSWORD_LENGTH, hashPassword } from "../lib/password";
 import { send } from "../http";
 import { requireRoles } from "../middleware/auth";
 import { wrap } from "../middleware/error";
@@ -15,7 +15,7 @@ usersRouter.use(requireRoles("admin"));
 const createSchema = z.object({
   name: z.string().min(1).max(100),
   email: z.string().email(),
-  password: z.string().min(10),
+  password: z.string().min(MIN_PASSWORD_LENGTH),
   role: z.enum(["admin", "marketing", "sales"]),
   teamId: z.number().int().positive().nullable(),
   senderIds: z.array(z.number().int().positive()).max(50).optional(),
@@ -70,7 +70,7 @@ usersRouter.patch(
         role: z.enum(["admin", "marketing", "sales"]).optional(),
         teamId: z.number().int().positive().nullable().optional(),
         isActive: z.boolean().optional(),
-        password: z.string().min(10).optional(),
+        password: z.string().min(MIN_PASSWORD_LENGTH).optional(),
         senderIds: z.array(z.number().int().positive()).max(50).optional(),
       })
       .parse(req.body);
@@ -89,6 +89,7 @@ usersRouter.patch(
         teamId,
         isActive: body.isActive,
         passwordHash: body.password ? await hashPassword(body.password) : undefined,
+        passwordChangedAt: body.password ? new Date() : undefined,
       },
       include: userInclude,
     });

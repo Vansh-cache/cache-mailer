@@ -1,6 +1,7 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import multer from "multer";
 import pinoHttp from "pino-http";
 import { config } from "./config";
@@ -25,20 +26,28 @@ import { loadAssetImage } from "./storage/assets";
 export function buildApi() {
   const app = express();
   app.set("trust proxy", 1);
+  app.disable("x-powered-by");
   const origins = config.nodeEnv === "production"
     ? [config.appUrl]
     : [config.appUrl, "http://localhost:5173", "http://127.0.0.1:5173"];
   app.use(cors({ origin: origins, credentials: true }));
-  app.use((_req, res, next) => {
+  app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+    res.setHeader("Content-Security-Policy", "default-src 'none'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+    // Mail clients and the web app load /media images from other origins.
+    res.setHeader("Cross-Origin-Resource-Policy", req.path.startsWith("/media/") ? "cross-origin" : "same-origin");
+    if (config.nodeEnv === "production") res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
     next();
   });
+  app.use("/api", rateLimit({ windowMs: 60_000, max: 600, standardHeaders: true, legacyHeaders: false }));
   app.use(pinoHttp({ logger }));
   app.use(cookieParser());
   app.use(express.json({ limit: "2mb" }));
-  app.use("/media", express.static(config.uploadDir, { maxAge: "7d" }));
+  app.use("/media", express.static(config.uploadDir, { maxAge: "7d", dotfiles: "deny", index: false }));
   app.get("/media/:file", async (req, res, next) => {
     try {
       const file = req.params.file;

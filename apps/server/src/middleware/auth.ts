@@ -18,7 +18,10 @@ export async function loadUser(req: Request, _res: Response, next: NextFunction)
       where: { id: BigInt(payload.sub) },
       include: { team: true },
     });
-    if (user?.isActive) {
+    // Sessions issued before the latest password change are no longer valid.
+    // JWT iat has 1-second resolution, hence the small tolerance.
+    const revoked = user?.passwordChangedAt != null && payload.issuedAt < user.passwordChangedAt.getTime() - 1000;
+    if (user?.isActive && !revoked) {
       req.user = {
         id: user.id,
         name: user.name,

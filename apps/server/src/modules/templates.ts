@@ -212,6 +212,9 @@ templatesRouter.post(
         : { first_name: email === normalizeEmail(req.user!.email) ? first : "there", email };
       const personalized = personalizeHtml(rendered.html, fields).split("[[UNSUB]]").join(previewUnsub);
       const embedded = await embedUploadedImages(personalized);
+      if (embedded.report.missing.length > 0) {
+        throw new AppError(422, `These images could not be attached, so nothing was sent: ${embedded.report.missing.join(", ")}`);
+      }
       const result = await sendMail(sender.provider, {
         fromEmail: sender.fromEmail,
         fromName: sender.fromName,

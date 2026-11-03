@@ -1,20 +1,23 @@
-# Local development only. On a production VM, change these passwords and
-# do not publish port 3306 publicly (keep MySQL on localhost).
+# Local development database. Credentials come from a root-level .env file
+# (gitignored), e.g.:
+#   MYSQL_ROOT_PASSWORD=<random>
+#   MYSQL_PASSWORD=<random>
+# The port is bound to localhost only; never publish MySQL publicly.
 services:
   mysql:
     image: mysql:8.0
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: bulk_mailer
-      MYSQL_USER: mailer
-      MYSQL_PASSWORD: mailer
+      MYSQL_USER: ${MYSQL_USER:-mailer}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - mailer_mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot"]
       interval: 5s
       timeout: 5s
       retries: 30

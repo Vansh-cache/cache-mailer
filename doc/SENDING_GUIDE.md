@@ -2,7 +2,7 @@
 
 This is the working guide for the app at http://localhost:5173. It explains the words the product uses, what each role can do, what is still missing before a real send, what to ask IT, and the click path from an imported customer list to a sent campaign.
 
-Sign-in starts with one bootstrap admin: `admin@mailer.com` (password set by `SEED_ADMIN_PASSWORD` in `apps/server/.env`, default `Qwe@123` — change it after the first sign-in). There are no demo accounts. The admin creates each person's login under **Users**, choosing a role and team:
+Sign-in starts with one bootstrap admin, created by the seed from `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in `apps/server/.env` (there is no default password; change it after the first sign-in and remove it from `.env`). There are no demo accounts. The admin creates each person's login under **Users**, choosing a role and team:
 
 | Role | Team | Can do |
 |---|---|---|
