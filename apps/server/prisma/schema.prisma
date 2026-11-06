@@ -64,6 +64,11 @@ enum RecipientStatus {
   skipped
 }
 
+enum TestSendStatus {
+  sent
+  failed
+}
+
 enum EventType {
   delivered
   bounce_hard
@@ -150,6 +155,9 @@ model SenderAccount {
   fromEmail       String         @unique @map("from_email") @db.VarChar(190)
   replyTo         String?        @map("reply_to") @db.VarChar(190)
   provider        SenderProvider @default(graph)
+  smtpHost        String?        @map("smtp_host") @db.VarChar(255)
+  smtpPort        Int?           @map("smtp_port") @db.UnsignedSmallInt
+  smtpSecure      Boolean        @default(false) @map("smtp_secure")
   dailyLimit      Int            @default(500) @map("daily_limit") @db.UnsignedInt
   perMinuteLimit  Int            @default(20) @map("per_minute_limit") @db.UnsignedInt
   status          SenderStatus   @default(active)
@@ -274,8 +282,25 @@ model Template {
   campaigns     Campaign[]
   sequenceSteps SequenceStep[]
   assets        TemplateAsset[]
+  testSends     TestSend[]
 
   @@map("templates")
+}
+
+model TestSend {
+  id         BigInt         @id @default(autoincrement()) @db.UnsignedBigInt
+  templateId BigInt         @map("template_id") @db.UnsignedBigInt
+  userId     BigInt?        @map("user_id") @db.UnsignedBigInt
+  toEmail    String         @map("to_email") @db.VarChar(190)
+  fromEmail  String         @map("from_email") @db.VarChar(190)
+  status     TestSendStatus
+  error      String?        @db.Text
+  createdAt  DateTime       @default(now()) @map("created_at") @db.DateTime(0)
+  template   Template       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt], map: "idx_test_sends_created")
+  @@index([templateId, createdAt], map: "idx_test_sends_template")
+  @@map("test_sends")
 }
 
 model Campaign {
@@ -283,6 +308,7 @@ model Campaign {
   teamId        Int            @map("team_id") @db.UnsignedTinyInt
   name          String         @db.VarChar(150)
   subject       String         @db.VarChar(255)
+  fromName      String?        @map("from_name") @db.VarChar(100)
   preheader     String?        @db.VarChar(255)
   templateId    BigInt         @map("template_id") @db.UnsignedBigInt
   htmlSnapshot  String?        @map("html_snapshot") @db.MediumText
@@ -338,6 +364,7 @@ model CampaignRecipient {
   internetMessageId String?         @map("internet_message_id") @db.VarChar(255)
   lastError         String?         @map("last_error") @db.VarChar(500)
   sentAt            DateTime?       @map("sent_at") @db.DateTime(0)
+  chunkIndex        Int             @default(1) @map("chunk_index") @db.UnsignedInt
   campaign          Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   contact           Contact         @relation(fields: [contactId], references: [id])
   sender            SenderAccount   @relation(fields: [senderId], references: [id])
@@ -346,6 +373,7 @@ model CampaignRecipient {
   @@unique([campaignId, contactId], map: "uq_campaign_contact")
   @@index([status, senderId, nextAttemptAt], map: "idx_queue")
   @@index([campaignId, status], map: "idx_campaign_status")
+  @@index([campaignId, chunkIndex], map: "idx_campaign_chunk")
   @@index([internetMessageId], map: "idx_msgid")
   @@map("campaign_recipients")
 }

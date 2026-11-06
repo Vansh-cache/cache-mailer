@@ -14,6 +14,8 @@ import { HealthPage } from "./pages/Health";
 import { LoginPage } from "./pages/Login";
 import { MailboxesPage } from "./pages/Mailboxes";
 import { SettingsPage } from "./pages/Settings";
+import { SendMailPage } from "./pages/SendMail";
+import { SendStatusPage } from "./pages/SendStatus";
 import { TemplatesPage } from "./pages/Templates";
 import { UsersPage } from "./pages/Users";
 import { useEffect } from "react";
@@ -31,9 +33,11 @@ function Shell() {
         <Route path="audience" element={<Navigate to="/contacts" replace />} />
         <Route path="templates" element={<TemplatesPage />} />
         <Route path="templates/:id" element={<EditorPage />} />
+        <Route path="send" element={<SendMailPage />} />
         <Route path="campaigns" element={<CampaignsPage />} />
         <Route path="campaigns/new" element={<CampaignWizardPage />} />
         <Route path="campaigns/:id" element={<CampaignReportPage />} />
+        <Route path="send-status" element={<SendStatusPage />} />
         <Route path="growth" element={<GrowthPage />} />
         <Route path="mailboxes" element={<MailboxesPage />} />
         <Route path="settings" element={<SettingsPage />} />

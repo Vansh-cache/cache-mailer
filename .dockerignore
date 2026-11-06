@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/dist
+**/dist-seed
+data
+**/*.log
+.env
+.env.*
+apps/server/.env
+apps/server/.env.*
+!apps/server/.env.example
+coverage

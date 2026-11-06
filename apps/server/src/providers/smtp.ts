@@ -2,7 +2,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import nodemailer from "nodemailer";
 import { prisma } from "../db";
-import { decrypt } from "../lib/crypto";
+import { decrypt, encrypt } from "../lib/crypto";
 import { normalizeEmail } from "../lib/email";
 import { getSetting } from "../lib/settings";
 import type { SendMessage, SendResult } from "./graph";
@@ -16,6 +16,18 @@ export type SmtpConfig = {
   email: string;
   password: string;
 };
+
+export type MailboxSmtp = {
+  id: bigint;
+  fromEmail: string;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpSecure: boolean;
+};
+
+export function mailboxSmtpSecretName(senderId: bigint): string {
+  return `smtp_mailbox_${senderId.toString()}`;
+}
 
 type SmtpError = Error & {
   code?: string;
@@ -48,6 +60,53 @@ export async function smtpPasswordSet(): Promise<boolean> {
     select: { name: true },
   });
   return Boolean(secret);
+}
+
+export async function saveMailboxSmtpPassword(senderId: bigint, password: string): Promise<void> {
+  const encrypted = Uint8Array.from(encrypt(password));
+  const name = mailboxSmtpSecretName(senderId);
+  await prisma.integrationSecret.upsert({
+    where: { name },
+    update: { valueEncrypted: encrypted },
+    create: { name, valueEncrypted: encrypted },
+  });
+}
+
+export async function deleteMailboxSmtpPassword(senderId: bigint): Promise<void> {
+  await prisma.integrationSecret.deleteMany({ where: { name: mailboxSmtpSecretName(senderId) } });
+}
+
+export async function mailboxPasswordFlags(senderIds: bigint[]): Promise<Set<string>> {
+  if (senderIds.length === 0) return new Set();
+  const rows = await prisma.integrationSecret.findMany({
+    where: { name: { in: senderIds.map(mailboxSmtpSecretName) } },
+    select: { name: true },
+  });
+  return new Set(rows.map((row) => row.name));
+}
+
+// A mailbox with its own host and password signs in as that mailbox's From
+// address. The Settings login is only a fallback when the emails match.
+export async function smtpConfigForMailbox(sender: MailboxSmtp): Promise<SmtpConfig | null> {
+  const port = sender.smtpPort;
+  const host = sender.smtpHost?.trim() ?? "";
+  if (host && port != null && Number.isInteger(port) && port >= 1 && port <= 65535) {
+    const secret = await prisma.integrationSecret.findUnique({
+      where: { name: mailboxSmtpSecretName(sender.id) },
+    });
+    if (secret) {
+      return {
+        host,
+        port,
+        secure: sender.smtpSecure,
+        email: normalizeEmail(sender.fromEmail),
+        password: decrypt(Buffer.from(secret.valueEncrypted)),
+      };
+    }
+  }
+  const shared = await getSmtpConfig();
+  if (shared && shared.email === normalizeEmail(sender.fromEmail)) return shared;
+  return null;
 }
 
 async function transporterFor(config: SmtpConfig) {
@@ -92,9 +151,7 @@ function failed(error: unknown): SendResult {
   };
 }
 
-export async function smtpCheck(): Promise<void> {
-  const config = await getSmtpConfig();
-  if (!config) throw new Error("Add the SMTP host, email, and password in Settings first");
+export async function smtpVerify(config: SmtpConfig): Promise<void> {
   const transporter = await transporterFor(config);
   try {
     await transporter.verify();
@@ -104,17 +161,12 @@ export async function smtpCheck(): Promise<void> {
 }
 
 export async function smtpSend(message: SendMessage): Promise<SendResult> {
-  const config = await getSmtpConfig();
+  const sender = await prisma.senderAccount.findUnique({
+    where: { fromEmail: normalizeEmail(message.fromEmail) },
+  });
+  const config = sender ? await smtpConfigForMailbox(sender) : null;
   if (!config) {
-    return { ok: false, temporary: true, status: 0, error: "SMTP is not configured in Settings" };
-  }
-  if (normalizeEmail(message.fromEmail) !== config.email) {
-    return {
-      ok: false,
-      temporary: false,
-      status: 400,
-      error: `SMTP email in Settings (${config.email}) does not match this mailbox (${message.fromEmail})`,
-    };
+    return { ok: false, temporary: true, status: 0, error: "Add the SMTP host and password on this mailbox" };
   }
   const transporter = await transporterFor(config);
   try {

@@ -131,8 +131,15 @@ export const api = {
   deleteTemplate: (id: number) => request(`/api/templates/${id}`, { method: "DELETE" }),
   duplicateTemplate: (id: number) => request<{ template: Template }>(`/api/templates/${id}/duplicate`, { method: "POST" }),
   preview: (design: Design) => request<{ html: string; text: string }>("/api/templates/preview", { method: "POST", body: JSON.stringify({ design }) }),
-  testSend: (id: number, senderId: number, receiver: string, tagIds: number[] = [], design?: Design) => request<{ ok: boolean; sent: string[]; matched: number; truncated: boolean }>(`/api/templates/${id}/test-send`, { method: "POST", body: JSON.stringify({ senderId, to: receiver, tagIds, design }) }),
-  audiencePreview: (body: { tags: number[]; segmentId?: number | null; excludeTags?: number[]; emails?: string[] }) => request<{ count: number }>("/api/campaigns/audience-preview", { method: "POST", body: JSON.stringify(body) }),
+  testSend: (id: number, senderIds: number[], receiver: string, tagIds: number[] = [], design?: Design) => request<{ ok: boolean; sent: string[]; matched: number; truncated: boolean; mailboxCount: number }>(`/api/templates/${id}/test-send`, { method: "POST", body: JSON.stringify({ senderIds, to: receiver, tagIds, design }) }),
+  testSends: (query: { templateId?: number; status?: string; search?: string; page?: number } = {}) => {
+    const params = new URLSearchParams({ pageSize: "50", page: String(query.page ?? 1) });
+    if (query.templateId) params.set("templateId", String(query.templateId));
+    if (query.status) params.set("status", query.status);
+    if (query.search) params.set("search", query.search);
+    return request<{ sends: TestSendRow[]; total: number; page: number; pageSize: number; counts: { sent: number; failed: number } }>(`/api/templates/test-sends?${params}`);
+  },
+  audiencePreview: (body: { tags: number[]; segmentId?: number | null; excludeTags?: number[]; emails?: string[] }) => request<{ count: number; chunkSize: number; chunks: number }>("/api/campaigns/audience-preview", { method: "POST", body: JSON.stringify(body) }),
   upload: (file: File) => {
     const body = new FormData();
     body.set("file", file);
@@ -156,10 +163,13 @@ export const api = {
   stats: (id: number) => request<Stats>(`/api/campaigns/${id}/stats`),
   timeline: (id: number) => request<{ points: { hourStart: string; opens: number; clicks: number }[] }>(`/api/campaigns/${id}/timeline`),
   links: (id: number) => request<{ links: { id: number; original_url: string; total: number; uniq: number }[] }>(`/api/campaigns/${id}/links`),
-  recipients: (id: number, query: { status?: string; search?: string; page?: number } = {}) => {
+  chunks: (id: number) => request<{ chunkSize: number; chunks: SendChunk[] }>(`/api/campaigns/${id}/chunks`),
+  recipients: (id: number, query: { status?: string; search?: string; page?: number; chunk?: number; sort?: "sent" } = {}) => {
     const params = new URLSearchParams({ pageSize: "50", page: String(query.page ?? 1) });
     if (query.status) params.set("status", query.status);
     if (query.search) params.set("search", query.search);
+    if (query.chunk) params.set("chunk", String(query.chunk));
+    if (query.sort) params.set("sort", query.sort);
     return request<{ recipients: Recipient[]; total: number; page: number; pageSize: number; counts: RecipientCounts }>(`/api/campaigns/${id}/recipients?${params}`);
   },
   overview: () => request<Overview>("/api/analytics/overview"),
@@ -233,6 +243,11 @@ export type Sender = {
   dailyLimit: number;
   perMinuteLimit: number;
   lastError: string | null;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpSecure: boolean;
+  smtpPasswordSet: boolean;
+  smtpSource: "mailbox" | "settings" | "missing";
   teamId: number;
   team: { name: string };
 };
@@ -241,6 +256,7 @@ export type Campaign = {
   id: number;
   name: string;
   subject: string;
+  fromName?: string | null;
   status: string;
   ccEmails?: string | null;
   team?: { name: string };
@@ -266,9 +282,30 @@ export type Stats = {
   rates: { bounce: number; open: number; ctr: number; ctor: number; unsubscribe: number; reply: number };
 };
 
+export type TestSendRow = {
+  id: number;
+  templateId: number;
+  templateName: string;
+  toEmail: string;
+  fromEmail: string;
+  status: "sent" | "failed";
+  error: string | null;
+  createdAt: string;
+};
+
 export type RecipientStatus = "queued" | "processing" | "sent" | "failed" | "skipped";
 
 export type RecipientCounts = Record<RecipientStatus, number>;
+
+export type SendChunk = {
+  index: number;
+  total: number;
+  queued: number;
+  processing: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+};
 
 export type Recipient = {
   id: number;
@@ -278,6 +315,7 @@ export type Recipient = {
   nextAttemptAt: string;
   sentAt: string | null;
   lastError: string | null;
+  chunkIndex: number;
   contact: { email: string; firstName: string | null };
   sender: { fromEmail: string };
 };

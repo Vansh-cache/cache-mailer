@@ -30,6 +30,10 @@ function buildTracking() {
     next();
   });
   app.use(express.urlencoded({ extended: false, limit: "10kb" }));
+  app.get("/healthz", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ok: true });
+  });
   app.use(rateLimit({ windowMs: 60_000, max: 120, standardHeaders: true, legacyHeaders: false }));
 
   app.get("/o/:file", async (req, res) => {
@@ -189,9 +193,13 @@ function buildTracking() {
     res.send(page("Welcome", "You are on the list."));
   });
 
+  app.use((_req, res) => {
+    res.status(404).send(page("Not found", "This link is not valid."));
+  });
+
   return app;
 }
 
-buildTracking().listen(config.trackingPort, "127.0.0.1", () => {
-  logger.info({ port: config.trackingPort }, "tracking listening");
+buildTracking().listen(config.trackingPort, config.bindHost, () => {
+  logger.info({ host: config.bindHost, port: config.trackingPort }, "tracking listening");
 });

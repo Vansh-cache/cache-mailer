@@ -9,6 +9,7 @@ import { audit } from "../lib/audit";
 import { assertSenderAccess, assertTeam, teamFilter } from "../lib/team";
 import { wrap } from "../middleware/error";
 import { audienceSchema, countNewManualReceivers, ensureManualContacts, resolveAudience } from "../campaigns/audience";
+import { SEND_CHUNK_SIZE } from "../campaigns/chunks";
 import { launchCampaign, loadCampaign } from "../campaigns/launch";
 import { precheckCampaign } from "../campaigns/precheck";
 import { parseCcEmails } from "../lib/email";
@@ -17,17 +18,25 @@ import type { AuthUser } from "../types";
 
 export const campaignsRouter = Router();
 
-const writeSchema = z.object({
+const campaignFields = {
   name: z.string().min(1).max(150),
-  subject: z.string().max(255).default(""),
+  subject: z.string().max(255),
   preheader: z.string().max(255).nullable().optional(),
   templateId: z.number().int().positive(),
   audience: audienceSchema,
+  fromName: z.string().trim().min(1).max(100).optional(),
   ccEmails: z.string().max(1000).optional(),
   useUtm: z.boolean().optional(),
-  senderIds: z.array(z.number().int().positive()).default([]),
+  senderIds: z.array(z.number().int().positive()),
   teamId: z.number().int().positive().optional(),
+};
+const writeSchema = z.object({
+  ...campaignFields,
+  subject: campaignFields.subject.default(""),
+  senderIds: campaignFields.senderIds.default([]),
 });
+// No defaults here: fields missing from a partial update must stay untouched.
+const updateSchema = z.object(campaignFields).partial();
 
 campaignsRouter.get(
   "/",
@@ -67,6 +76,7 @@ campaignsRouter.post(
         teamId,
         name: body.name,
         subject: body.subject || "Untitled",
+        fromName: body.fromName ?? null,
         preheader: body.preheader ?? null,
         templateId: template.id,
         audience: body.audience,
@@ -85,7 +95,12 @@ campaignsRouter.post(
   wrap(async (req, res) => {
     const audience = audienceSchema.parse(req.body);
     const people = await resolveAudience(req.user!, audience);
-    send(res, 200, { count: people.length + (await countNewManualReceivers(audience.emails)) });
+    const count = people.length + (await countNewManualReceivers(audience.emails));
+    send(res, 200, {
+      count,
+      chunkSize: SEND_CHUNK_SIZE,
+      chunks: count === 0 ? 0 : Math.ceil(count / SEND_CHUNK_SIZE),
+    });
   }),
 );
 
@@ -102,7 +117,7 @@ campaignsRouter.put(
   wrap(async (req, res) => {
     const existing = await loadCampaign(BigInt(req.params.id), req.user!);
     if (existing.status !== "draft") throw new AppError(400, "Only drafts can be edited");
-    const body = writeSchema.partial().parse(req.body);
+    const body = updateSchema.parse(req.body);
     if (body.audience) await ensureManualContacts(body.audience.emails);
     if (body.senderIds) {
       const senders = await prisma.senderAccount.findMany({ where: { id: { in: body.senderIds.map((id) => BigInt(id)) } } });
@@ -188,6 +203,7 @@ campaignsRouter.post(
         teamId: existing.teamId,
         name: `Copy of ${existing.name}`.slice(0, 150),
         subject: existing.subject,
+        fromName: existing.fromName,
         preheader: existing.preheader,
         templateId: existing.templateId,
         audience: existing.audience ?? {},
@@ -253,6 +269,39 @@ campaignsRouter.get(
   }),
 );
 
+const recipientSelect = {
+  id: true,
+  status: true,
+  skipReason: true,
+  attempts: true,
+  nextAttemptAt: true,
+  lastError: true,
+  sentAt: true,
+  chunkIndex: true,
+  contact: { select: { email: true, firstName: true } },
+  sender: { select: { fromEmail: true } },
+} satisfies Prisma.CampaignRecipientSelect;
+
+campaignsRouter.get(
+  "/:id/chunks",
+  wrap(async (req, res) => {
+    const campaign = await loadCampaign(BigInt(req.params.id), req.user!);
+    const grouped = await prisma.campaignRecipient.groupBy({
+      by: ["chunkIndex", "status"],
+      where: { campaignId: campaign.id },
+      _count: { _all: true },
+    });
+    const chunks = new Map<number, { index: number; total: number; queued: number; processing: number; sent: number; failed: number; skipped: number }>();
+    for (const row of grouped) {
+      const chunk = chunks.get(row.chunkIndex) ?? { index: row.chunkIndex, total: 0, queued: 0, processing: 0, sent: 0, failed: 0, skipped: 0 };
+      chunk[row.status] += row._count._all;
+      chunk.total += row._count._all;
+      chunks.set(row.chunkIndex, chunk);
+    }
+    send(res, 200, { chunkSize: SEND_CHUNK_SIZE, chunks: [...chunks.values()].sort((a, b) => a.index - b.index) });
+  }),
+);
+
 campaignsRouter.get(
   "/:id/recipients",
   wrap(async (req, res) => {
@@ -260,35 +309,62 @@ campaignsRouter.get(
     const { page, take, skip } = pageParams(req);
     const rawStatus = String(req.query.status ?? "");
     const status = (["queued", "processing", "sent", "failed", "skipped"] as const).find((item) => item === rawStatus);
-    const search = String(req.query.search ?? "").trim();
+    const search = String(req.query.search ?? "").trim().replace(/[%_\\]/g, "");
+    const chunk = Number(req.query.chunk);
+    const chunkIndex = Number.isInteger(chunk) && chunk > 0 ? chunk : undefined;
+    const sortSent = req.query.sort === "sent";
     const where: Prisma.CampaignRecipientWhereInput = {
       campaignId: campaign.id,
+      ...(chunkIndex ? { chunkIndex } : {}),
       ...(rawStatus === "remaining" ? { status: { in: ["queued", "processing"] } } : status ? { status } : {}),
       ...(search ? { contact: { email: { contains: search } } } : {}),
     };
-    const [total, recipients, grouped] = await Promise.all([
+    const countWhere: Prisma.CampaignRecipientWhereInput = {
+      campaignId: campaign.id,
+      ...(chunkIndex ? { chunkIndex } : {}),
+    };
+    const [total, grouped] = await Promise.all([
       prisma.campaignRecipient.count({ where }),
-      prisma.campaignRecipient.findMany({
-        where,
-        select: {
-          id: true,
-          status: true,
-          skipReason: true,
-          attempts: true,
-          nextAttemptAt: true,
-          lastError: true,
-          sentAt: true,
-          contact: { select: { email: true, firstName: true } },
-          sender: { select: { fromEmail: true } },
-        },
-        orderBy: rawStatus === "sent" ? { sentAt: "desc" } : { id: "asc" },
-        skip,
-        take,
-      }),
-      prisma.campaignRecipient.groupBy({ by: ["status"], where: { campaignId: campaign.id }, _count: { _all: true } }),
+      prisma.campaignRecipient.groupBy({ by: ["status"], where: countWhere, _count: { _all: true } }),
     ]);
     const counts = { queued: 0, processing: 0, sent: 0, failed: 0, skipped: 0 };
     for (const row of grouped) counts[row.status] = row._count._all;
+    let recipients;
+    if (sortSent) {
+      const statusSql = rawStatus === "remaining"
+        ? Prisma.sql`AND r.status IN ('queued', 'processing')`
+        : status
+          ? Prisma.sql`AND r.status = ${status}`
+          : Prisma.empty;
+      const idRows = await prisma.$queryRaw<Array<{ id: bigint }>>`
+        SELECT r.id
+        FROM campaign_recipients r
+        INNER JOIN contacts c ON c.id = r.contact_id
+        WHERE r.campaign_id = ${campaign.id}
+          ${chunkIndex ? Prisma.sql`AND r.chunk_index = ${chunkIndex}` : Prisma.empty}
+          ${statusSql}
+          ${search ? Prisma.sql`AND c.email LIKE ${"%" + search + "%"}` : Prisma.empty}
+        ORDER BY (r.status = 'sent') DESC, r.sent_at DESC, r.id ASC
+        LIMIT ${take} OFFSET ${skip}
+      `;
+      const ids = idRows.map((row) => row.id);
+      const found = ids.length === 0
+        ? []
+        : await prisma.campaignRecipient.findMany({ where: { id: { in: ids } }, select: recipientSelect });
+      const byId = new Map(found.map((row) => [row.id.toString(), row]));
+      recipients = ids.flatMap((id) => {
+        const row = byId.get(id.toString());
+        return row ? [row] : [];
+      });
+    } else {
+      recipients = await prisma.campaignRecipient.findMany({
+        where,
+        select: recipientSelect,
+        orderBy: rawStatus === "sent" ? { sentAt: "desc" } : { id: "asc" },
+        skip,
+        take,
+      });
+    }
     send(res, 200, { page, pageSize: take, total, counts, recipients });
   }),
 );

@@ -14,5 +14,21 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0",
+    "mjml-cli": {
+      "glob": "^14.0.3",
+      "minimatch": "^11.0.4"
+    },
+    "js-beautify": {
+      "glob": "^14.0.3"
+    },
+    "editorconfig": {
+      "minimatch": "^11.0.4"
+    },
+    "tailwindcss": {
+      "postcss-selector-parser": "^6.1.5"
+    }
   }
 }

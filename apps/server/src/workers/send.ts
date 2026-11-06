@@ -139,7 +139,7 @@ export async function sendRecipient(id: bigint): Promise<void> {
   }
   const result = await sendMail(row.sender.provider, {
     fromEmail: row.sender.fromEmail,
-    fromName: row.sender.fromName,
+    fromName: row.campaign.fromName?.trim() || row.sender.fromName,
     replyTo: row.sender.replyTo,
     to: row.contact.email,
     cc: cc.length > 0 ? cc : undefined,

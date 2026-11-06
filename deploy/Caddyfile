@@ -1,0 +1,18 @@
+{
+	{$CADDY_GLOBAL_OPTIONS}
+}
+
+{$APP_DOMAIN} {
+	encode zstd gzip
+	header -Server
+
+	# Open pixel, click redirects, unsubscribe, gates and referrals.
+	@tracking path /o/* /c/* /u/* /g/* /r/*
+	handle @tracking {
+		reverse_proxy tracking:4100
+	}
+
+	handle {
+		reverse_proxy api:4000
+	}
+}

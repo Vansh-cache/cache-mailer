@@ -19,6 +19,7 @@ function design(html: string, button?: { label: string; href: string }): Design 
   base.blocks = [
     {
       id: "copy",
+      section: "body",
       type: "text",
       html,
       style: { fontSize: 16, align: "left", padding: "28px 28px 8px", bg: "transparent" },
@@ -27,6 +28,7 @@ function design(html: string, button?: { label: string; href: string }): Design 
   if (button) {
     base.blocks.push({
       id: "cta",
+      section: "body",
       type: "button",
       label: button.label,
       href: button.href,

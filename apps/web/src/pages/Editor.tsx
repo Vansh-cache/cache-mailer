@@ -1,18 +1,16 @@
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import Color from "@tiptap/extension-color";
-import Link from "@tiptap/extension-link";
 import TextAlign from "@tiptap/extension-text-align";
-import TextStyle from "@tiptap/extension-text-style";
-import Underline from "@tiptap/extension-underline";
+import { Color, TextStyle } from "@tiptap/extension-text-style";
 import { EditorContent, useEditor as useTipTap } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowLeft, ArrowUp, Check, Copy, Eye, GripVertical, Image as ImageIcon, LayoutTemplate, Minus, MousePointerClick, MoveVertical, Pencil, Plus, Redo2, Send, SlidersHorizontal, Sparkles, Trash2, Type, Undo2, Upload, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Copy, Eye, GripVertical, History, Image as ImageIcon, LayoutTemplate, Minus, MousePointerClick, MoveVertical, Pencil, Plus, Redo2, Send, SlidersHorizontal, Sparkles, Trash2, Type, Undo2, Upload, type LucideIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import toast from "react-hot-toast";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { MailboxPicker } from "../components/MailboxPicker";
 import { Button, inputClass } from "../components/ui";
 import { api, mediaPath, type Block, type Section } from "../lib/api";
 import { uid } from "../lib/uid";
@@ -1087,7 +1085,7 @@ function BlockSettings({ block }: { block: Block }) {
 // panel and vice versa.
 function useRichText(blockId: string, html: string) {
   const editor = useTipTap({
-    extensions: [StarterKit, Underline, Link.configure({ openOnClick: false }), TextStyle, Color, TextAlign.configure({ types: ["paragraph"] })],
+    extensions: [StarterKit.configure({ link: { openOnClick: false } }), TextStyle, Color, TextAlign.configure({ types: ["paragraph"] })],
     content: html,
     onUpdate: ({ editor: current }) => {
       useEditor.getState().change((draft) => {
@@ -1098,7 +1096,7 @@ function useRichText(blockId: string, html: string) {
   });
   useEffect(() => {
     if (!editor || editor.isFocused) return;
-    if (editor.getHTML() !== html) editor.commands.setContent(html, false);
+    if (editor.getHTML() !== html) editor.commands.setContent(html, { emitUpdate: false });
   }, [editor, html]);
   return editor;
 }
@@ -1310,34 +1308,50 @@ function TagPicker({
 }
 
 function TestSend({ templateId }: { templateId: number }) {
+  const queryClient = useQueryClient();
   const senders = useQuery({ queryKey: ["senders"], queryFn: api.senders });
   const contacts = useQuery({ queryKey: ["test-receivers"], queryFn: () => api.contacts("?pageSize=100") });
   const tags = useQuery({ queryKey: ["tags"], queryFn: api.tags });
-  const [senderId, setSenderId] = useState(0);
+  const [senderIds, setSenderIds] = useState<number[]>([]);
   const [receiver, setReceiver] = useState("");
   const [tagIds, setTagIds] = useState<number[]>([]);
   const send = useMutation({
     mutationFn: async () => {
       const design = designFromStore();
       if (useEditor.getState().dirty) await saveDraft(templateId);
-      return api.testSend(templateId, senderId, receiver, tagIds, design);
+      return api.testSend(templateId, senderIds, receiver, tagIds, design);
     },
-    onSuccess: (result) => toast.success(
-      result.truncated
-        ? `Test sent to first ${result.sent.length} of ${result.matched} contacts in the selected tags`
-        : `Test sent to ${result.sent.join(", ")}`,
-    ),
-    onError: (error: Error) => toast.error(error.message),
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["test-sends"] });
+      const via = result.mailboxCount > 1 ? ` via ${result.mailboxCount} mailboxes` : "";
+      toast.success(
+        result.truncated
+          ? `Test sent to first ${result.sent.length} of ${result.matched} contacts in the selected tags${via}`
+          : `Test sent to ${result.sent.join(", ")}${via}`,
+      );
+    },
+    onError: async (error: Error) => {
+      await queryClient.invalidateQueries({ queryKey: ["test-sends"] });
+      toast.error(error.message);
+    },
   });
   return (
-    <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 bg-slate-50/60 px-3 py-2">
-      <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+    <div className="flex flex-wrap items-start gap-1.5 border-t border-slate-100 bg-slate-50/60 px-3 py-2">
+      <span className="inline-flex h-9 shrink-0 items-center gap-1 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
         <Send size={12} className="text-tide-700" /> Test send
       </span>
-      <select className={`${compactInput} w-52 flex-none`} value={senderId} onChange={(event) => setSenderId(Number(event.target.value))} aria-label="Test sender mailbox">
-        <option value={0}>Choose mailbox</option>
-        {senders.data?.senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.fromEmail}</option>)}
-      </select>
+      <div className="flex min-w-0 flex-col gap-1" aria-label="Test sender mailboxes">
+        <MailboxPicker
+          senders={senders.data?.senders ?? []}
+          selected={senderIds}
+          onChange={setSenderIds}
+          compact
+          emptyLabel="No mailboxes yet."
+        />
+        {senderIds.length === 0 && (
+          <span className="text-[11px] text-slate-500">Choose one or more mailboxes</span>
+        )}
+      </div>
       <TagPicker tags={tags.data?.tags ?? []} selected={tagIds} onChange={setTagIds} />
       <input
         className={`${compactInput} min-w-52 flex-1`}
@@ -1350,9 +1364,12 @@ function TestSend({ templateId }: { templateId: number }) {
       <datalist id="test-receiver-options">
         {contacts.data?.contacts.map((contact) => <option key={contact.id} value={contact.email}>{contact.email}</option>)}
       </datalist>
-      <button type="button" className={`${toolbarButton} h-9 shrink-0 px-3`} disabled={!senderId || (!receiver.trim() && tagIds.length === 0) || send.isPending} onClick={() => send.mutate()}>
+      <button type="button" className={`${toolbarButton} h-9 shrink-0 px-3`} disabled={senderIds.length === 0 || (!receiver.trim() && tagIds.length === 0) || send.isPending} onClick={() => send.mutate()}>
         <Send size={13} /> {send.isPending ? "Sending..." : "Send test"}
       </button>
+      <Link to={`/send-status?source=test&template=${templateId}`} className={`${toolbarButton} h-9 shrink-0 px-3`}>
+        <History size={13} /> History
+      </Link>
     </div>
   );
 }

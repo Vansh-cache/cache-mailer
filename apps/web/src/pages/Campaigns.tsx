@@ -2,6 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { MailboxPicker } from "../components/MailboxPicker";
 import { Badge, Button, Field, PageHeader, inputClass, statusTone } from "../components/ui";
 import { api, type Precheck } from "../lib/api";
 import { Link } from "react-router-dom";
@@ -15,13 +16,14 @@ export function CampaignsPage() {
       </PageHeader>
       <div className="panel overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-left text-slate-500"><tr><th className="px-3 py-2">Name</th><th>Status</th><th>Sent</th></tr></thead>
+          <thead className="bg-slate-50 text-left text-slate-500"><tr><th className="px-3 py-2">Name</th><th>Status</th><th>Sent</th><th></th></tr></thead>
           <tbody>
             {campaigns.data?.campaigns.map((campaign) => (
               <tr key={campaign.id} className="border-t border-slate-100">
                 <td className="px-3 py-2"><Link className="font-medium text-tide-700" to={`/campaigns/${campaign.id}`}>{campaign.name}</Link></td>
                 <td><Badge tone={statusTone(campaign.status)}>{campaign.status}</Badge></td>
                 <td>{campaign.stats?.sent ?? 0}</td>
+                <td className="pr-3 text-right"><Link className="text-tide-700" to={`/send-status?campaign=${campaign.id}`}>Send list</Link></td>
               </tr>
             ))}
           </tbody>
@@ -50,7 +52,7 @@ export function CampaignWizardPage() {
   useEffect(() => {
     if (presetTemplate) setName((current) => current || presetTemplate.name);
   }, [presetTemplate]);
-  const [senderId, setSenderId] = useState(0);
+  const [senderIds, setSenderIds] = useState<number[]>([]);
   const [tagIds, setTagIds] = useState<number[]>([]);
   const [tagSearch, setTagSearch] = useState("");
   const [segmentId, setSegmentId] = useState(0);
@@ -70,13 +72,14 @@ export function CampaignWizardPage() {
   const create = useMutation({
     mutationFn: async () => {
       if (!hasAudience) throw new Error("Choose at least one tag, a saved segment, or add receivers manually");
+      if (senderIds.length === 0) throw new Error("Choose at least one mailbox");
       const created = await api.createCampaign({
         name,
         subject,
         preheader,
         templateId,
         teamId: teamId || undefined,
-        senderIds: senderId ? [senderId] : [],
+        senderIds,
         audience: { tags: tagIds, segmentId: segmentId || null, excludeTags: [], emails },
         ccEmails: ccEmails.trim() || undefined,
         useUtm: true,
@@ -118,11 +121,15 @@ export function CampaignWizardPage() {
             {teams.data?.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
           </select>
         </Field>
-        <Field label="Mailbox">
-          <select className={inputClass} value={senderId} onChange={(event) => setSenderId(Number(event.target.value))}>
-            <option value={0}>Choose</option>
-            {senders.data?.senders.map((sender) => <option key={sender.id} value={sender.id}>{sender.fromEmail}</option>)}
-          </select>
+        <Field label="Mailboxes">
+          <MailboxPicker
+            senders={senders.data?.senders ?? []}
+            selected={senderIds}
+            onChange={setSenderIds}
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Pick one or more. Recipients are spread across the selected mailboxes when the campaign sends.
+          </p>
         </Field>
         <Field label="CC (optional)">
           <input

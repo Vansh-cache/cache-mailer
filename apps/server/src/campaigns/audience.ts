@@ -6,7 +6,7 @@ import { isValidEmail, normalizeEmail } from "../lib/email";
 import { assertTeam, canReadShared } from "../lib/team";
 import type { AuthUser } from "../types";
 
-const MAX_MANUAL_EMAILS = 500;
+const MAX_MANUAL_EMAILS = 2000;
 
 export const audienceSchema = z.object({
   tags: z.array(z.number().int().positive()).default([]),

@@ -8,3 +8,5 @@ data/
 coverage/
 apps/web/dist/
 apps/server/dist/
+apps/server/dist-seed/
+.env.production

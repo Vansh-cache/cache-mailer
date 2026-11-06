@@ -76,8 +76,16 @@ function resolveDir(envName: string, fallback: string): string {
   return dir;
 }
 
+function webDistDir(): string | null {
+  const raw = optional("WEB_DIST_DIR");
+  const dir = raw ? path.resolve(raw) : path.join(repoRoot, "apps", "web", "dist");
+  return fs.existsSync(path.join(dir, "index.html")) ? dir : null;
+}
+
 export const config = {
   nodeEnv,
+  // 127.0.0.1 on a workstation; containers set 0.0.0.0 behind the reverse proxy.
+  bindHost: optional("BIND_HOST") || "127.0.0.1",
   apiPort: Number(process.env.API_PORT ?? 4000),
   trackingPort: Number(process.env.TRACKING_PORT ?? 4100),
   appUrl: optional("APP_URL") || "http://localhost:5173",
@@ -100,6 +108,8 @@ export const config = {
   sendDelayMinMs: Number(process.env.SEND_DELAY_MIN_MS ?? (nodeEnv === "production" ? 2000 : 0)),
   sendDelayMaxMs: Number(process.env.SEND_DELAY_MAX_MS ?? (nodeEnv === "production" ? 8000 : 0)),
   workerId: optional("WORKER_ID") || `worker-${process.pid}`,
+  /** Built web app served by the API in production (same origin as /api). */
+  webDistDir: isProduction ? webDistDir() : null,
 };
 
 if (isProduction) {

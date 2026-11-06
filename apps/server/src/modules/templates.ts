@@ -1,10 +1,11 @@
+import { Prisma } from "@prisma/client";
 import { Router } from "express";
 import { z } from "zod";
 import { config } from "../config";
 import { prisma } from "../db";
 import { AppError } from "../errors";
 import { audit } from "../lib/audit";
-import { send } from "../http";
+import { pageParams, send } from "../http";
 import { isValidEmail, normalizeEmail } from "../lib/email";
 import { companyFooter } from "../lib/settings";
 import { resolveAudience } from "../campaigns/audience";
@@ -23,6 +24,70 @@ function visible(userTeam: number | null, role: string, template: { teamId: numb
   if (role === "admin" || template.visibility === "shared") return true;
   return template.teamId != null && template.teamId === userTeam;
 }
+
+function visibleTemplateWhere(user: { role: string; teamId: number | null }): Prisma.TemplateWhereInput {
+  if (user.role === "admin") return {};
+  return {
+    OR: [
+      { visibility: "shared" },
+      ...(user.teamId != null ? [{ teamId: user.teamId }] : []),
+    ],
+  };
+}
+
+templatesRouter.get(
+  "/test-sends",
+  wrap(async (req, res) => {
+    const { page, take, skip } = pageParams(req);
+    const rawStatus = String(req.query.status ?? "");
+    const status = rawStatus === "sent" || rawStatus === "failed" ? rawStatus : undefined;
+    const templateId = Number(req.query.templateId);
+    const search = String(req.query.search ?? "").trim();
+    const scope: Prisma.TestSendWhereInput = {
+      template: visibleTemplateWhere(req.user!),
+      ...(Number.isInteger(templateId) && templateId > 0 ? { templateId: BigInt(templateId) } : {}),
+      ...(search
+        ? {
+            OR: [
+              { toEmail: { contains: search } },
+              { fromEmail: { contains: search } },
+              { template: { name: { contains: search } } },
+            ],
+          }
+        : {}),
+    };
+    const where: Prisma.TestSendWhereInput = { ...scope, ...(status ? { status } : {}) };
+    const [total, rows, grouped] = await Promise.all([
+      prisma.testSend.count({ where }),
+      prisma.testSend.findMany({
+        where,
+        include: { template: { select: { name: true } } },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip,
+        take,
+      }),
+      prisma.testSend.groupBy({ by: ["status"], where: scope, _count: { _all: true } }),
+    ]);
+    const counts = { sent: 0, failed: 0 };
+    for (const row of grouped) counts[row.status] = row._count._all;
+    send(res, 200, {
+      page,
+      pageSize: take,
+      total,
+      counts,
+      sends: rows.map((row) => ({
+        id: row.id,
+        templateId: row.templateId,
+        templateName: row.template.name,
+        toEmail: row.toEmail,
+        fromEmail: row.fromEmail,
+        status: row.status,
+        error: row.error,
+        createdAt: row.createdAt,
+      })),
+    });
+  }),
+);
 
 templatesRouter.get(
   "/",
@@ -163,17 +228,22 @@ templatesRouter.post(
   "/:id/test-send",
   wrap(async (req, res) => {
     const body = z.object({
-      senderId: z.number().int().positive(),
+      senderId: z.number().int().positive().optional(),
+      senderIds: z.array(z.number().int().positive()).min(1).max(20).optional(),
       to: z.string().max(1000).optional(),
       recipients: z.array(z.string().max(190)).max(10).optional(),
       tagIds: z.array(z.number().int().positive()).max(500).optional(),
       design: designSchema.optional(),
     }).parse(req.body);
+    const senderIds = [...new Set(body.senderIds ?? (body.senderId ? [body.senderId] : []))];
+    if (senderIds.length === 0) throw new AppError(400, "Choose at least one mailbox");
     const template = await prisma.template.findUnique({ where: { id: BigInt(req.params.id) } });
     if (!template || !visible(req.user!.teamId, req.user!.role, template)) throw new AppError(404, "Template not found");
-    const sender = await prisma.senderAccount.findUnique({ where: { id: BigInt(body.senderId) } });
-    if (!sender) throw new AppError(404, "Mailbox not found");
-    await assertSenderAccess(req.user!, sender.id, sender.teamId);
+    const senders = await prisma.senderAccount.findMany({ where: { id: { in: senderIds.map((id) => BigInt(id)) } } });
+    if (senders.length !== senderIds.length) throw new AppError(404, "One or more mailboxes were not found");
+    for (const sender of senders) await assertSenderAccess(req.user!, sender.id, sender.teamId);
+    const byId = new Map(senders.map((sender) => [Number(sender.id), sender]));
+    const ordered = senderIds.map((id) => byId.get(id)!);
     const requested = body.recipients ?? (body.to ? body.to.split(/[,;\s]+/) : []);
     const manual = [...new Set(requested.map((email) => normalizeEmail(email)).filter(Boolean))];
     let matched = 0;
@@ -205,35 +275,78 @@ templatesRouter.post(
     const first = req.user!.name.split(" ")[0] || "there";
     const previewUnsub = `${config.trackingUrl}/u/preview`;
     const unsubscribe = rendered.html.includes("[[UNSUB]]");
-    for (const email of recipients) {
-      const contact = await prisma.contact.findUnique({ where: { email } });
-      const fields = contact
-        ? contactFields(contact)
-        : { first_name: email === normalizeEmail(req.user!.email) ? first : "there", email };
-      const personalized = personalizeHtml(rendered.html, fields).split("[[UNSUB]]").join(previewUnsub);
-      const embedded = await embedUploadedImages(personalized);
-      if (embedded.report.missing.length > 0) {
-        throw new AppError(422, `These images could not be attached, so nothing was sent: ${embedded.report.missing.join(", ")}`);
+    for (const sender of ordered) {
+      for (const email of recipients) {
+        let delivered = false;
+        try {
+          const contact = await prisma.contact.findUnique({ where: { email } });
+          const fields = contact
+            ? contactFields(contact)
+            : { first_name: email === normalizeEmail(req.user!.email) ? first : "there", email };
+          const personalized = personalizeHtml(rendered.html, fields).split("[[UNSUB]]").join(previewUnsub);
+          const embedded = await embedUploadedImages(personalized);
+          if (embedded.report.missing.length > 0) {
+            throw new AppError(422, `These images could not be attached, so nothing was sent: ${embedded.report.missing.join(", ")}`);
+          }
+          const result = await sendMail(sender.provider, {
+            fromEmail: sender.fromEmail,
+            fromName: sender.fromName,
+            replyTo: sender.replyTo,
+            to: email,
+            subject: `Test: ${template.name}`,
+            html: embedded.html,
+            attachments: embedded.attachments,
+            text: unsubscribe ? personalize(rendered.text, fields).split("[[UNSUB]]").join(previewUnsub) : undefined,
+            headers: unsubscribe
+              ? [
+                  { name: "List-Unsubscribe", value: `<${previewUnsub}>` },
+                  { name: "List-Unsubscribe-Post", value: "List-Unsubscribe=One-Click" },
+                ]
+              : undefined,
+          });
+          if (!result.ok) throw new AppError(502, `${sender.fromEmail} → ${email}: ${result.error}`);
+          delivered = true;
+          await prisma.testSend.create({
+            data: {
+              templateId: template.id,
+              userId: req.user!.id,
+              toEmail: email,
+              fromEmail: sender.fromEmail,
+              status: "sent",
+            },
+          });
+        } catch (error) {
+          if (!delivered) {
+            const message = error instanceof Error ? error.message : "Send failed";
+            await prisma.testSend.create({
+              data: {
+                templateId: template.id,
+                userId: req.user!.id,
+                toEmail: email,
+                fromEmail: sender.fromEmail,
+                status: "failed",
+                error: message.slice(0, 2000),
+              },
+            }).catch(() => undefined);
+          }
+          throw error;
+        }
       }
-      const result = await sendMail(sender.provider, {
-        fromEmail: sender.fromEmail,
-        fromName: sender.fromName,
-        replyTo: sender.replyTo,
-        to: email,
-        subject: `Test: ${template.name}`,
-        html: embedded.html,
-        attachments: embedded.attachments,
-        text: unsubscribe ? personalize(rendered.text, fields).split("[[UNSUB]]").join(previewUnsub) : undefined,
-        headers: unsubscribe
-          ? [
-              { name: "List-Unsubscribe", value: `<${previewUnsub}>` },
-              { name: "List-Unsubscribe-Post", value: "List-Unsubscribe=One-Click" },
-            ]
-          : undefined,
-      });
-      if (!result.ok) throw new AppError(502, `${email}: ${result.error}`);
     }
-    await audit(req.user!.id, "template.test_send", "template", template.id, { to: recipients.join(", "), count: recipients.length, tagIds: body.tagIds ?? [], matched });
-    send(res, 200, { ok: true, sent: recipients, matched, truncated: matched > recipients.length });
+    await audit(req.user!.id, "template.test_send", "template", template.id, {
+      to: recipients.join(", "),
+      count: recipients.length,
+      mailboxCount: ordered.length,
+      mailboxes: ordered.map((sender) => sender.fromEmail),
+      tagIds: body.tagIds ?? [],
+      matched,
+    });
+    send(res, 200, {
+      ok: true,
+      sent: recipients,
+      matched,
+      truncated: matched > recipients.length,
+      mailboxCount: ordered.length,
+    });
   }),
 );

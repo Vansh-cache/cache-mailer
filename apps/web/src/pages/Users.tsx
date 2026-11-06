@@ -1,9 +1,10 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import { z } from "zod";
+import { MailboxPicker } from "../components/MailboxPicker";
 import { Button, Field, PageHeader, inputClass } from "../components/ui";
 import { api, type User } from "../lib/api";
 
@@ -18,53 +19,16 @@ const schema = z
   })
   .superRefine((values, ctx) => {
     if (values.role !== "admin" && !values.teamId) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["teamId"], message: "Choose a team for Marketing and Sales users" });
+      ctx.addIssue({ code: "custom", path: ["teamId"], message: "Choose a team for Marketing and Sales users" });
     }
   });
 
-type FormValues = z.infer<typeof schema>;
+type FormInput = z.input<typeof schema>;
+type FormValues = z.output<typeof schema>;
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
   return <p className="mt-1 text-xs text-rose-600">{message}</p>;
-}
-
-function MailboxPicker({
-  senders,
-  selected,
-  onChange,
-  teamId,
-  role,
-}: {
-  senders: { id: number; fromEmail: string; fromName: string; teamId: number; team?: { name: string } }[];
-  selected: number[];
-  onChange: (ids: number[]) => void;
-  teamId: number | null;
-  role: "admin" | "marketing" | "sales";
-}) {
-  const options = useMemo(() => {
-    if (role === "admin" || teamId == null) return senders;
-    return senders.filter((sender) => sender.teamId === teamId);
-  }, [senders, teamId, role]);
-  const toggle = (id: number) => {
-    onChange(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id]);
-  };
-  return (
-    <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
-      {options.map((sender) => (
-        <label key={sender.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-slate-50">
-          <input type="checkbox" checked={selected.includes(sender.id)} onChange={() => toggle(sender.id)} />
-          <span className="min-w-0 flex-1 truncate">{sender.fromEmail}</span>
-          <span className="shrink-0 text-[11px] text-slate-400">{sender.team?.name ?? `Team ${sender.teamId}`}</span>
-        </label>
-      ))}
-      {options.length === 0 && (
-        <p className="px-1 py-2 text-xs text-slate-500">
-          {role !== "admin" && !teamId ? "Choose a team first to see its mailboxes." : "No mailboxes yet. Add one under Mailboxes."}
-        </p>
-      )}
-    </div>
-  );
 }
 
 export function UsersPage() {
@@ -73,7 +37,7 @@ export function UsersPage() {
   const teams = useQuery({ queryKey: ["teams"], queryFn: api.teams });
   const senders = useQuery({ queryKey: ["senders"], queryFn: api.senders });
   const [editing, setEditing] = useState<User | null>(null);
-  const form = useForm<FormValues>({
+  const form = useForm<FormInput, unknown, FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { name: "", email: "", password: "", role: "marketing", teamId: "", senderIds: [] },
   });

@@ -7,6 +7,7 @@ import { companyFooter } from "../lib/settings";
 import type { AuthUser } from "../types";
 import { renderDesign } from "../render/email";
 import { audienceSchema, resolveAudience } from "./audience";
+import { chunkIndexFor } from "./chunks";
 import { precheckCampaign } from "./precheck";
 import { sentToday } from "../workers/quota";
 
@@ -40,6 +41,7 @@ export async function launchCampaign(id: bigint, user: AuthUser): Promise<void> 
     senderId: assignment[index]!,
     token: randomToken(),
     status: "queued" as const,
+    chunkIndex: chunkIndexFor(index),
   }));
   await prisma.$transaction(async (tx) => {
     const current = await tx.campaign.findUnique({ where: { id } });

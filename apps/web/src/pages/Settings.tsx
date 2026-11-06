@@ -81,8 +81,9 @@ export function SettingsPage() {
           <form className="panel col-span-2 space-y-3 p-4" onSubmit={(event) => { event.preventDefault(); saveSmtp.mutate(); }}>
             <h2 className="font-medium">SMTP sending (Nodemailer)</h2>
             <p className="text-sm text-slate-500">
-              For Microsoft 365, use smtp.office365.com, port 587, and STARTTLS. The password is encrypted on the server and is never shown again.
-              Add a mailbox with the same From email and choose SMTP.
+              This login is shared. A mailbox uses it only when its From email is the SMTP email below.
+              To send from a different address, open that mailbox and save its own SMTP host, port, and password.
+              For Microsoft 365, use smtp.office365.com, port 587, and STARTTLS. Passwords are encrypted and never shown again.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <Field label="SMTP host"><input className={inputClass} value={smtpHost} onChange={(event) => setSmtpHost(event.target.value)} /></Field>

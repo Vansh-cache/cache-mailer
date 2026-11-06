@@ -75,12 +75,13 @@ export function SendingQueue({ campaignId, live }: { campaignId: number; live: b
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="text-left text-xs text-slate-500">
-            <tr><th className="py-1.5">Receiver</th><th>Status</th><th>Mailbox</th><th>{filter === "sent" ? "Sent at" : "Sent / next try"}</th><th>Attempts</th><th>Note</th></tr>
+            <tr><th className="py-1.5">Receiver</th><th>Sent</th><th>Status</th><th>Mailbox</th><th>{filter === "sent" ? "Sent at" : "Sent / next try"}</th><th>Attempts</th><th>Note</th></tr>
           </thead>
           <tbody>
             {data?.recipients.map((row) => (
               <tr key={row.id} className="border-t border-slate-100 align-top">
                 <td className="py-1.5 pr-2">{row.contact.email}</td>
+                <td className="pr-2"><Badge tone={row.status === "sent" ? "green" : "slate"}>{row.status === "sent" ? "Yes" : "No"}</Badge></td>
                 <td className="pr-2"><Badge tone={row.status === "processing" || row.status === "queued" ? "amber" : statusTone(row.status)}>{row.status}</Badge></td>
                 <td className="pr-2 text-slate-600">{row.sender.fromEmail}</td>
                 <td className="pr-2 text-slate-600">{row.sentAt ? formatTime(row.sentAt) : row.status === "queued" ? formatTime(row.nextAttemptAt) : "—"}</td>
